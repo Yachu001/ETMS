@@ -1,0 +1,6 @@
+# In teampulse-workspace/.cursorignore
+backend/venv/
+**/node_modules/
+**/dist/
+**/__pycache__/
+*.sqlite3
