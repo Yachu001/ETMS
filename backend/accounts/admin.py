@@ -1,18 +1,22 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.forms import AdminUserCreationForm, UserChangeForm
-from .models import User, Department, UserDepartment, UserReporting, PasswordResetOTP
+from django.contrib.auth.forms import UserCreationForm, UserChangeForm
+from django.contrib.auth import get_user_model
+from .models import Business, Department, UserDepartment, UserReporting, AttendanceRecord, PasswordResetOTP
+
+User = get_user_model()
 
 
-class CustomUserCreationForm(AdminUserCreationForm):
-    class Meta(AdminUserCreationForm.Meta):
+class CustomUserCreationForm(UserCreationForm):
+    class Meta(UserCreationForm.Meta):
         model = User
-        fields = ('username', 'email', 'role', 'designation')
+        fields = ('username', 'email', 'full_name', 'role', 'designation')
 
 
 class CustomUserChangeForm(UserChangeForm):
     class Meta(UserChangeForm.Meta):
         model = User
+        fields = '__all__'
 
 
 class UserDepartmentInline(admin.TabularInline):
@@ -26,32 +30,45 @@ class UserReportingInline(admin.TabularInline):
     extra = 1
 
 
+@admin.register(Business)
+class BusinessAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'is_active', 'created_at')
+    search_fields = ('name', 'code')
+    list_filter = ('is_active',)
+
+
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
     form = CustomUserChangeForm
     add_form = CustomUserCreationForm
 
-    # Detail / Edit page field groupings
     fieldsets = UserAdmin.fieldsets + (
-        ('Role & System Settings', {
-            'fields': ('role', 'designation')
+        ('Employee Profile Details', {
+            'fields': ('full_name', 'employee_code', 'phone', 'role', 'designation', 'date_of_joining', 'businesses')
         }),
-        ('Reminder Preferences', {
-            'fields': ('reminder_enabled', 'reminder_time')
-        }),
-    )
-
-    # Initial "+ Add User" form fields
-    add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Role & System Settings', {
-            'fields': ('email', 'role', 'designation')
+        ('Shift & Duty Boundaries', {
+            'fields': ('shift_start_time', 'shift_end_time', 'reminder_enabled', 'reminder_time')
         }),
     )
 
-    list_display = ('username', 'email', 'role', 'designation', 'is_active', 'is_staff')
-    list_filter = ('role', 'is_active', 'is_staff')
-    search_fields = ('username', 'email', 'designation')
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': (
+                'username', 'email', 'full_name', 'role', 'designation',
+                'password1', 'password2'
+            ),
+        }),
+    )
+
+    list_display = (
+        'username', 'full_name', 'email', 'role', 'designation',
+        'employee_code', 'date_of_joining', 'is_active', 'is_staff'
+    )
+    list_filter = ('role', 'is_active', 'is_staff', 'businesses')
+    search_fields = ('username', 'full_name', 'email', 'employee_code', 'designation')
     ordering = ('username',)
+    filter_horizontal = ('businesses',)
     inlines = [UserDepartmentInline, UserReportingInline]
 
 
@@ -72,6 +89,12 @@ class UserDepartmentAdmin(admin.ModelAdmin):
 class UserReportingAdmin(admin.ModelAdmin):
     list_display = ('employee', 'manager', 'is_primary')
     list_filter = ('is_primary',)
+
+
+@admin.register(AttendanceRecord)
+class AttendanceRecordAdmin(admin.ModelAdmin):
+    list_display = ('user', 'date', 'is_present', 'marked_at')
+    list_filter = ('is_present', 'date')
 
 
 @admin.register(PasswordResetOTP)

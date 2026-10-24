@@ -35,32 +35,45 @@ def get_subordinate_ids(manager_user, include_self=False):
 
 def build_hierarchy_tree(user):
     """
-    Constructs a nested tree dictionary representing direct and indirect reports.
+    Constructs a nested tree dictionary where 'subordinates' 
+    is always a list of direct reports, avoiding duplicate wrapping.
     """
-    direct_reports = UserReporting.objects.filter(manager=user).select_related('employee')
-    
-    children = []
-    for report in direct_reports:
-        emp = report.employee
-        primary_dept = emp.user_departments.filter(is_primary=True).select_related('department').first()
-        children.append({
-            'id': emp.id,
-            'username': emp.username,
-            'email': emp.email,
-            'role': emp.role,
-            'designation': emp.designation or 'Staff',
-            'is_primary_lead': report.is_primary,
-            'primary_department': primary_dept.department.name if primary_dept else None,
-            'subordinates': build_hierarchy_tree(emp)
-        })
+    def get_children(parent_user):
+        # Find all direct reports for the current parent
+        direct_reports = UserReporting.objects.filter(
+            manager_id=parent_user.id
+        ).select_related('employee')
+        
+        children_list = []
+        for report in direct_reports:
+            emp = report.employee
+            if not emp:
+                continue
+            
+            primary_dept = emp.user_departments.filter(is_primary=True).select_related('department').first()
+            
+            # Append the employee and recursively fetch their subordinates as a list
+            children_list.append({
+                'id': emp.id,
+                'username': emp.username,
+                'email': emp.email,
+                'role': emp.role,
+                'designation': emp.designation or 'Staff',
+                'is_primary_lead': report.is_primary,
+                'primary_department': primary_dept.department.name if primary_dept else None,
+                'subordinates': get_children(emp)  # <-- Returns [...]
+            })
+            
+        return children_list
 
-    primary_dept = user.user_departments.filter(is_primary=True).select_related('department').first()
+    # Top-level root node (e.g., Yahya / Super Admin)
+    root_dept = user.user_departments.filter(is_primary=True).select_related('department').first()
     return {
         'id': user.id,
         'username': user.username,
         'email': user.email,
         'role': user.role,
         'designation': user.designation or 'Staff',
-        'primary_department': primary_dept.department.name if primary_dept else None,
-        'subordinates': children
+        'primary_department': root_dept.department.name if root_dept else None,
+        'subordinates': get_children(user)
     }
