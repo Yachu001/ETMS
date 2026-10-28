@@ -5,6 +5,7 @@ from accounts.utils import get_subordinate_ids
 from datetime import datetime
 from django.utils import timezone
 
+
 User = get_user_model()
 
 def format_short_display_name(user):
@@ -161,6 +162,7 @@ class TaskSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
     activity_logs = TaskActivityLogDetailSerializer(many=True, read_only=True)
     is_overdue = serializers.SerializerMethodField()
+    is_committed_today = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -177,6 +179,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'assigned_to_name',
             'due_date',
             'is_overdue',   # <--- Added
+            'is_committed_today',
             'requires_verification',
             'verified_by',
             'rejection_reason',
@@ -193,7 +196,13 @@ class TaskSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'is_overdue',
+            'is_committed_today',
         ]
+
+    def get_is_committed_today(self, obj):
+        """Checks if this task is committed in today's DailyWorkSelection."""
+        today = timezone.localtime(timezone.now()).date()
+        return DailyWorkSelection.objects.filter(task=obj, date=today).exists()
 
     def get_is_overdue(self, obj):
         if not obj.due_date:

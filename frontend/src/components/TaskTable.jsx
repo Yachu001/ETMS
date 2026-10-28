@@ -112,10 +112,32 @@ export default function TaskTable({ tasks, onOpenActionModal, onRefresh, current
 
                 return (
                   <tr key={task.id} className="hover:bg-slate-50/70 transition">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900">{task.title}</div>
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      <div className="flex items-center gap-2">
+                        {/* Green Active Dot for Today's Committed Tasks */}
+                        {task.is_committed_today && (
+                          <span 
+                            className="relative flex h-2.5 w-2.5 shrink-0" 
+                            title="Active in Today's Commitments Plan"
+                          >
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                          </span>
+                        )}
+                        
+                        <span className="truncate max-w-sm">{task.title}</span>
+
+                        {task.is_committed_today && (
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-mono shrink-0">
+                            Today
+                          </span>
+                        )}
+                      </div>
+
                       {task.description && (
-                        <div className="text-[11px] text-slate-500 line-clamp-1">{task.description}</div>
+                        <div className="text-[11px] text-slate-400 font-normal truncate max-w-xs mt-0.5">
+                          {task.description}
+                        </div>
                       )}
                     </td>
 

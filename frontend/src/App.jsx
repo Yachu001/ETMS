@@ -19,6 +19,8 @@ import SupervisorTeamView from './components/SupervisorTeamView';
 import AdminDepartmentsView from './components/AdminDepartmentsView';
 import UserDetailView from './components/UserDetailView';
 import PersonalProfileView from './components/PersonalProfileView';
+import BusinessDeptMatrixView from './components/BusinessDeptMatrixView';
+import UserManagementView from './components/UserManagementView';
 
 import {
   LayoutDashboard,
@@ -29,6 +31,7 @@ import {
   UserPlus,
   LogOut,
   Building,
+  Building2,
   History,
   Calendar,
   Users,
@@ -36,12 +39,13 @@ import {
   Clock,
   ListTodo,
   ChevronRight,
+  UserCog,
 } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [profileData, setProfileData] = useState(null);
-  const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'tasks' | 'tree' | 'profile' | 'audit'
+  const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'tasks' | 'users' | 'tree' | 'matrix' | 'profile' | 'audit'
   const [tasks, setTasks] = useState([]);
   const [todaysCommitments, setTodaysCommitments] = useState([]);
   const [isOnDuty, setIsOnDuty] = useState(true);
@@ -57,7 +61,7 @@ export default function App() {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
 
-  // Drilldown state
+  // Drilldown state (User Cockpit inspection)
   const [drilldownUserId, setDrilldownUserId] = useState(null);
 
   // Load User & Profile
@@ -140,6 +144,7 @@ export default function App() {
 
   const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(currentUser.role);
   const isAdminTier = ['ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(currentUser.role);
+  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser.role);
 
   // Helper: Capitalize Words for Full Name fallback to Username
   const getCapitalizedDisplayName = () => {
@@ -210,7 +215,10 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab('tasks')}
+            onClick={() => {
+              setActiveTab('tasks');
+              setDrilldownUserId(null);
+            }}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition ${
               activeTab === 'tasks'
                 ? 'bg-blue-600 text-white font-semibold'
@@ -227,9 +235,29 @@ export default function App() {
             )}
           </button>
 
+          {/* USER MANAGEMENT CONSOLE LINK */}
           {isPrivileged && (
             <button
-              onClick={() => setActiveTab('tree')}
+              onClick={() => {
+                setActiveTab('users');
+                setDrilldownUserId(null);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+                activeTab === 'users'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <UserCog size={16} /> User Management
+            </button>
+          )}
+
+          {isPrivileged && (
+            <button
+              onClick={() => {
+                setActiveTab('tree');
+                setDrilldownUserId(null);
+              }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
                 activeTab === 'tree'
                   ? 'bg-blue-600 text-white font-semibold'
@@ -237,6 +265,23 @@ export default function App() {
               }`}
             >
               <Network size={16} /> Organization Tree
+            </button>
+          )}
+
+          {/* Business & Department Matrix */}
+          {canManageMatrix && (
+            <button
+              onClick={() => {
+                setActiveTab('matrix');
+                setDrilldownUserId(null);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+                activeTab === 'matrix'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Building2 size={16} /> Business & Matrix
             </button>
           )}
 
@@ -250,7 +295,10 @@ export default function App() {
           )}
 
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => {
+              setActiveTab('profile');
+              setDrilldownUserId(null);
+            }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
               activeTab === 'profile'
                 ? 'bg-blue-600 text-white font-semibold'
@@ -261,7 +309,10 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab('audit')}
+            onClick={() => {
+              setActiveTab('audit');
+              setDrilldownUserId(null);
+            }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
               activeTab === 'audit'
                 ? 'bg-blue-600 text-white font-semibold'
@@ -395,8 +446,7 @@ export default function App() {
                   {(currentUser.role === 'EMPLOYEE' || perspectiveMode === 'self') && (
                     <div className="space-y-6">
                       
-
-                      {/* OLD SIMPLE 3-CARD KPI ROW */}
+                      {/* KPI ROW */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
                           <div>
@@ -438,13 +488,13 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* IDLE / CAPACITY NOTICE: TRIGGERED IF ON-DUTY WITH 0 COMMITMENTS */}
+                      {/* IDLE NOTICE */}
                       {isOnDuty && todaysCommitments.length === 0 && (
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <AlertCircle size={18} className="text-amber-600 shrink-0" />
                             <span>
-                              <strong>Capacity Notice:</strong> You currently have <strong>0 tasks committed</strong> for today. Commit to items using the Daily Plan or accept incoming requests[cite: 1, 2].
+                              <strong>Capacity Notice:</strong> You currently have <strong>0 tasks committed</strong> for today[cite: 1, 3]. Commit to items using the Daily Plan or accept incoming requests.
                             </span>
                           </div>
                           <button
@@ -516,7 +566,12 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: HIERARCHY TREE */}
+          {/* TAB 3: USER MANAGEMENT CONSOLE & DRILLDOWN */}
+          {activeTab === 'users' && isPrivileged && (
+            <UserManagementView currentUser={currentUser} />
+          )}
+
+          {/* TAB 4: HIERARCHY TREE */}
           {activeTab === 'tree' && isPrivileged && (
             <div className="space-y-4">
               <div>
@@ -527,7 +582,17 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: PERSONAL DETAILS */}
+          {/* TAB 5: BUSINESS & ORG MATRIX */}
+          {activeTab === 'matrix' && canManageMatrix && (
+            <div className="space-y-4">
+              <BusinessDeptMatrixView 
+                userRole={currentUser.role}
+                onClose={() => setActiveTab('landing')}
+              />
+            </div>
+          )}
+
+          {/* TAB 6: PERSONAL DETAILS */}
           {activeTab === 'profile' && (
             <PersonalProfileView
               currentUser={currentUser}
@@ -535,7 +600,7 @@ export default function App() {
             />
           )}
 
-          {/* TAB 5: AUDIT LOGS */}
+          {/* TAB 7: AUDIT LOGS */}
           {activeTab === 'audit' && (
             <AuditLogViewer currentUser={currentUser} />
           )}
@@ -545,7 +610,10 @@ export default function App() {
       {/* ===================== MODALS ===================== */}
       <CreateUserModal
         isOpen={isCreateUserOpen}
-        onClose={() => setIsCreateUserOpen(false)}
+        onClose={() => {
+          setIsCreateUserOpen(false);
+          fetchTasks();
+        }}
         currentUserRole={currentUser.role}
       />
 

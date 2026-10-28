@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: '/api', // Use relative URL so all requests route through the tunnel/proxy
   headers: {
     'Content-Type': 'application/json',
   },
@@ -26,7 +26,8 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
-          const res = await axios.post('http://127.0.0.1:8000/api/auth/token/refresh/', {
+          // Changed to relative URL: /api/auth/token/refresh/
+          const res = await axios.post('/api/auth/token/refresh/', {
             refresh: refreshToken,
           });
           localStorage.setItem('access_token', res.data.access);
@@ -34,6 +35,7 @@ api.interceptors.response.use(
           return api(originalRequest);
         } catch (err) {
           localStorage.clear();
+          console.log(err)
           window.location.reload();
         }
       }

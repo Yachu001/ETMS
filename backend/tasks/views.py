@@ -164,104 +164,53 @@ class TaskActionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        task = generics.get_object_or_404(Task, pk=pk, is_disabled=False)
-        user = request.user
-        serializer = TaskActionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        task = get_object_or_404(Task, pk=pk)
+        actor = request.user
+        action = request.data.get('action', 'UPDATE_PROGRESS')
 
-        action = serializer.validated_data.get('action')
-        new_progress = serializer.validated_data.get('progress_percentage')
-        new_status = serializer.validated_data.get('status')
-        remarks = serializer.validated_data.get('remarks', '')
-        rejection_reason = serializer.validated_data.get('rejection_reason', '')
-        rejection_remarks = serializer.validated_data.get('rejection_remarks', '')
+        # Allow supervisors, department heads, and admins to manage task metadata & terminal statuses
+        is_authority = actor.role in ['SUPERVISOR', 'DEPT_HEAD', 'BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN'] or task.created_by == actor
+
+        if not is_authority and task.assigned_to != actor:
+            return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
 
         old_status = task.status
         old_progress = task.progress_percentage
 
-        # ACCEPT
-        if action == 'ACCEPT':
-            if task.assigned_to != user and not getattr(user, 'is_org_admin', False):
-                return Response({'detail': 'Only the assigned user can accept this task.'}, status=status.HTTP_403_FORBIDDEN)
-            
-            task.status = 'ACCEPTED'
-            task.progress_percentage = 0
-            task.save()
+        # Update Due Date and Core Metadata if authority provided them
+        if is_authority:
+            if 'due_date' in request.data:
+                task.due_date = request.data.get('due_date') or None
+            if 'title' in request.data:
+                task.title = request.data.get('title')
+            if 'description' in request.data:
+                task.description = request.data.get('description')
 
-            TaskActivityLog.objects.create(
-                task=task,
-                actor=user,
-                old_status=old_status,
-                new_status='ACCEPTED',
-                old_progress=old_progress,
-                new_progress=0,
-                remarks=remarks or "Task accepted by assignee (Not Started)."
-            )
-            return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        # Status and Progress Updates
+        new_status = request.data.get('status', task.status)
+        new_progress = request.data.get('progress_percentage', task.progress_percentage)
+        remarks = request.data.get('remarks', '')
 
-        # REJECT
-        elif action == 'REJECT':
-            if task.assigned_to != user and not getattr(user, 'is_org_admin', False):
-                return Response({'detail': 'Only the assigned user can reject this task.'}, status=status.HTTP_403_FORBIDDEN)
-            if not rejection_reason or not rejection_remarks:
-                return Response({'detail': 'Rejection reason category and detailed remarks are mandatory.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Authorize CANCELED and VERIFIED
+        if new_status in ['CANCELLED', 'VERIFIED'] and not is_authority:
+            return Response({'detail': 'Only supervisors or managers can cancel or verify tasks.'}, status=status.HTTP_403_FORBIDDEN)
 
-            task.status = 'REJECTED'
-            task.rejection_reason = rejection_reason
-            task.rejection_remarks = rejection_remarks
-            task.save()
+        task.status = new_status
+        task.progress_percentage = new_progress
+        task.save()
 
-            TaskActivityLog.objects.create(
-                task=task,
-                actor=user,
-                old_status=old_status,
-                new_status='REJECTED',
-                old_progress=old_progress,
-                new_progress=old_progress,
-                remarks=f"[{rejection_reason}] {rejection_remarks}"
-            )
-            return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        # Audit log creation
+        TaskActivityLog.objects.create(
+            task=task,
+            actor=actor,
+            old_status=old_status,
+            new_status=new_status,
+            old_progress=old_progress,
+            new_progress=new_progress,
+            remarks=remarks or f"Updated by {actor.username}"
+        )
 
-        # UPDATE PROGRESS / SLIDER
-        elif action == 'UPDATE_PROGRESS':
-            if new_progress is None:
-                new_progress = old_progress
-
-            computed_status = new_status if new_status else old_status
-
-            if computed_status != 'ON_HOLD':
-                if new_progress == 0:
-                    computed_status = 'ACCEPTED'
-                elif 0 < new_progress < 100:
-                    computed_status = 'IN_PROGRESS'
-                elif new_progress == 100:
-                    is_self_task = (task.created_by == task.assigned_to == user)
-                    if task.requires_verification and not is_self_task:
-                        computed_status = 'AWAITING_VERIFICATION'
-                    else:
-                        computed_status = 'VERIFIED'
-
-            task.progress_percentage = new_progress
-            task.status = computed_status
-            task.save()
-
-            today = timezone.now().date()
-            DailyWorkSelection.objects.filter(
-                user=user, task=task, date=today
-            ).update(has_status_changed_today=True)
-
-            TaskActivityLog.objects.create(
-                task=task,
-                actor=user,
-                old_status=old_status,
-                new_status=computed_status,
-                old_progress=old_progress,
-                new_progress=new_progress,
-                remarks=remarks or f"Progress slider updated to {new_progress}%."
-            )
-            return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
-
-        return Response({'detail': 'Invalid action requested.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(TaskSerializer(task, context={'request': request}).data)
 
 
 # ==========================================
@@ -524,15 +473,16 @@ class AdminDepartmentsSummaryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if not request.user.is_org_admin:
+        if not getattr(request.user, 'is_org_admin', False) and request.user.role not in ['ADMIN', 'SUPER_ADMIN']:
             return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
 
         today = timezone.now().date()
-        departments = Department.objects.prefetch_related('user_departments__user').all()
+        # FIX: Use 'department_users__user' instead of 'user_departments__user'
+        departments = Department.objects.prefetch_related('department_users__user').all()
         dept_data = []
 
         for dept in departments:
-            users = [ud.user for ud in dept.user_departments.all()]
+            users = [ud.user for ud in dept.department_users.all() if ud.user and ud.user.is_active]
             total_users = len(users)
             user_ids = [u.id for u in users]
 

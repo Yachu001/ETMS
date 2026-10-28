@@ -1,7 +1,10 @@
+# backend/accounts/utils.py
+
 from django.contrib.auth import get_user_model
 from .models import UserReporting
 
 User = get_user_model()
+
 
 def get_subordinate_ids(manager_user, include_self=False):
     """
@@ -12,7 +15,6 @@ def get_subordinate_ids(manager_user, include_self=False):
     if include_self:
         subordinate_ids.add(manager_user.id)
 
-    # Initial layer: Direct reports
     current_level_managers = [manager_user.id]
 
     while current_level_managers:
@@ -20,10 +22,9 @@ def get_subordinate_ids(manager_user, include_self=False):
             UserReporting.objects.filter(manager_id__in=current_level_managers)
             .values_list('employee_id', flat=True)
         )
-        
-        # Determine newly discovered subordinates to avoid circular recursion
+
         new_subordinates = [uid for uid in direct_reports if uid not in subordinate_ids]
-        
+
         if not new_subordinates:
             break
 
@@ -39,20 +40,18 @@ def build_hierarchy_tree(user):
     is always a list of direct reports, avoiding duplicate wrapping.
     """
     def get_children(parent_user):
-        # Find all direct reports for the current parent
         direct_reports = UserReporting.objects.filter(
             manager_id=parent_user.id
         ).select_related('employee')
-        
+
         children_list = []
         for report in direct_reports:
             emp = report.employee
             if not emp:
                 continue
-            
+
             primary_dept = emp.user_departments.filter(is_primary=True).select_related('department').first()
-            
-            # Append the employee and recursively fetch their subordinates as a list
+
             children_list.append({
                 'id': emp.id,
                 'username': emp.username,
@@ -61,12 +60,11 @@ def build_hierarchy_tree(user):
                 'designation': emp.designation or 'Staff',
                 'is_primary_lead': report.is_primary,
                 'primary_department': primary_dept.department.name if primary_dept else None,
-                'subordinates': get_children(emp)  # <-- Returns [...]
+                'subordinates': get_children(emp)
             })
-            
+
         return children_list
 
-    # Top-level root node (e.g., Yahya / Super Admin)
     root_dept = user.user_departments.filter(is_primary=True).select_related('department').first()
     return {
         'id': user.id,

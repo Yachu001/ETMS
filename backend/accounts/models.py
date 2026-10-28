@@ -2,15 +2,17 @@ import random
 from datetime import timedelta, time
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 
 # ==========================================
-# 1. BUSINESS ENTITY (COMPANIES / CHILD UNITS)
+# 1. BUSINESS ENTITY (COMPANIES / OPERATING UNITS)
 # ==========================================
 class Business(models.Model):
     name = models.CharField(max_length=150, unique=True)
     code = models.CharField(max_length=20, unique=True)  # e.g., 'B1', 'B2', 'CORP'
+    description = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -19,8 +21,18 @@ class Business(models.Model):
         verbose_name_plural = "Businesses"
         ordering = ['name']
 
+    def delete(self, *args, **kwargs):
+        # Prevent deletion if active users belong to this business
+        if self.members.filter(is_active=True).exists():
+            raise ValidationError(
+                f"Cannot delete Business '{self.name}'. There are active users currently assigned to it. "
+                "Reassign or disable those users first, or set this business to disabled/inactive."
+            )
+        super().delete(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.name} ({self.code})"
+        status = "" if self.is_active else " [Disabled]"
+        return f"{self.name} ({self.code}){status}"
 
 
 # ==========================================
@@ -28,7 +40,6 @@ class Business(models.Model):
 # ==========================================
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    # Self-referencing link for optional sub-departments (e.g., Accounts under Finance)
     parent = models.ForeignKey(
         'self',
         on_delete=models.CASCADE,
@@ -36,16 +47,74 @@ class Department(models.Model):
         blank=True,
         related_name='sub_departments'
     )
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        verbose_name = "Department"
+        verbose_name_plural = "Departments"
+        ordering = ['name']
+
+    def delete(self, *args, **kwargs):
+        # Prevent deletion if active users belong to this department
+        if self.department_users.filter(user__is_active=True).exists():
+            raise ValidationError(
+                f"Cannot delete Department '{self.name}'. There are active users mapped to it. "
+                "Reassign users to another department or disable the department instead."
+            )
+        super().delete(*args, **kwargs)
+
     def __str__(self):
+        status = "" if self.is_active else " [Disabled]"
         if self.parent:
-            return f"{self.parent.name} / {self.name}"
-        return self.name
+            return f"{self.parent.name} / {self.name}{status}"
+        return f"{self.name}{status}"
 
 
 # ==========================================
-# 3. CUSTOM USER MODEL
+# 3. MATRIX JUNCTION: BUSINESS <-> DEPARTMENT
+# ==========================================
+class BusinessDepartment(models.Model):
+    """
+    Cross-matrix junction linking a department within an operating business.
+    Example: Business 1 has Marketing & Finance; Marketing operates across Business 1 & 2.
+    """
+    business = models.ForeignKey(
+        Business, 
+        on_delete=models.CASCADE, 
+        related_name='business_departments'
+    )
+    department = models.ForeignKey(
+        Department, 
+        on_delete=models.CASCADE, 
+        related_name='department_businesses'
+    )
+    supervisor = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='supervised_matrix_branches'
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('business', 'department')
+        verbose_name = "Business Department Matrix"
+        verbose_name_plural = "Business Department Matrices"
+
+    def __str__(self):
+        status = "" if self.is_active else " [Disabled]"
+        lead = (
+            f" [Lead: {self.supervisor.full_name or self.supervisor.username}]"
+            if self.supervisor else " [Unassigned Lead]"
+        )
+        return f"{self.business.code} - {self.department.name}{lead}{status}"
+
+
+# ==========================================
+# 4. CUSTOM USER MODEL
 # ==========================================
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -74,22 +143,18 @@ class User(AbstractUser):
     reminder_enabled = models.BooleanField(default=True)
     reminder_time = models.TimeField(default=time(17, 45, 0))
 
-    # Business Association
+    # Relational Dimensions
     businesses = models.ManyToManyField(
         Business,
         related_name='members',
         blank=True
     )
-
-    # Department Association via Junction Table
     departments = models.ManyToManyField(
         Department,
         through='UserDepartment',
         related_name='members',
         blank=True
     )
-
-    # Reporting Hierarchy via Junction Table
     reporting_managers = models.ManyToManyField(
         'self',
         through='UserReporting',
@@ -129,23 +194,61 @@ class User(AbstractUser):
         rec = self.attendance_records.filter(date=today).first()
         return rec.is_present if rec else False
 
+    def delete(self, *args, **kwargs):
+        # Prevent deletion if user has active tasks in flight
+        active_task_statuses = [
+            'REQUEST_PENDING', 'ACCEPTED', 'IN_PROGRESS', 
+            'ON_HOLD', 'AWAITING_VERIFICATION'
+        ]
+        if hasattr(self, 'assigned_tasks'):
+            has_active_tasks = self.assigned_tasks.filter(status__in=active_task_statuses).exists()
+            if has_active_tasks:
+                raise ValidationError(
+                    f"Cannot delete user '{self.username}'. They have active or pending tasks assigned. "
+                    "Reassign or cancel these tasks, or disable the user account instead."
+                )
+        super().delete(*args, **kwargs)
+
     def save(self, *args, **kwargs):
-        # 1. Fallback full_name to username if empty
+        # 1. Fallback full_name to username if blank
         if not self.full_name and self.username:
             self.full_name = self.username
 
-        # 2. Auto-generate employee_code if not provided (Pattern: EID01, EID02, ...)
-        if not self.employee_code:
-            last_emp = User.objects.filter(employee_code__startswith='EID').order_by('-id').first()
-            if last_emp and last_emp.employee_code:
-                try:
-                    num_str = last_emp.employee_code.replace('EID', '')
-                    next_num = int(num_str) + 1
-                except ValueError:
-                    next_num = User.objects.count() + 1
-            else:
-                next_num = 1
-            self.employee_code = f"EID{next_num:02d}"
+        # 2. Guaranteed-Unique Auto-Generated employee_code
+        if not self.employee_code or self.employee_code.strip() == '':
+            # Fetch all existing EID codes to inspect the highest numeric value
+            existing_codes = list(
+                User.objects.filter(employee_code__startswith='EID')
+                .values_list('employee_code', flat=True)
+            )
+
+            highest_num = 0
+            for code in existing_codes:
+                if code:
+                    # Extract only the digits from the code (handles EID01, EID-02, EID003 safely)
+                    digits = ''.join(filter(str.isdigit, code))
+                    if digits:
+                        try:
+                            val = int(digits)
+                            if val > highest_num:
+                                highest_num = val
+                        except ValueError:
+                            pass
+
+            candidate_num = highest_num + 1
+
+            # Proactively check the database in a loop to ensure no collision exists
+            while True:
+                candidate_code = f"EID{candidate_num:02d}"
+                # Exclude self if updating existing instance
+                qs = User.objects.filter(employee_code=candidate_code)
+                if self.pk:
+                    qs = qs.exclude(pk=self.pk)
+                
+                if not qs.exists():
+                    self.employee_code = candidate_code
+                    break
+                candidate_num += 1
 
         # 3. Superuser role sync
         if self.is_superuser and self.role != 'SUPER_ADMIN':
@@ -159,7 +262,7 @@ class User(AbstractUser):
 
 
 # ==========================================
-# 4. JUNCTION TABLE: USER <-> DEPARTMENT
+# 5. JUNCTION TABLE: USER <-> DEPARTMENT
 # ==========================================
 class UserDepartment(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_departments')
@@ -177,7 +280,7 @@ class UserDepartment(models.Model):
 
 
 # ==========================================
-# 5. JUNCTION TABLE: REPORTING HIERARCHY
+# 6. JUNCTION TABLE: REPORTING HIERARCHY
 # ==========================================
 class UserReporting(models.Model):
     employee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reporting_assignments')
@@ -195,7 +298,7 @@ class UserReporting(models.Model):
 
 
 # ==========================================
-# 6. ATTENDANCE & ON-DUTY TRACKING
+# 7. ATTENDANCE RECORD
 # ==========================================
 class AttendanceRecord(models.Model):
     user = models.ForeignKey(
@@ -218,7 +321,7 @@ class AttendanceRecord(models.Model):
 
 
 # ==========================================
-# 7. EMAIL OTP FOR PASSWORD RECOVERY
+# 8. EMAIL OTP FOR PASSWORD RECOVERY
 # ==========================================
 class PasswordResetOTP(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_otps')

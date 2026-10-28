@@ -2,7 +2,10 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
 from django.contrib.auth import get_user_model
-from .models import Business, Department, UserDepartment, UserReporting, AttendanceRecord, PasswordResetOTP
+from .models import (
+    Business, Department, BusinessDepartment,
+    UserDepartment, UserReporting, AttendanceRecord, PasswordResetOTP
+)
 
 User = get_user_model()
 
@@ -30,11 +33,30 @@ class UserReportingInline(admin.TabularInline):
     extra = 1
 
 
+class BusinessDepartmentInline(admin.TabularInline):
+    model = BusinessDepartment
+    extra = 1
+
+
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'is_active', 'created_at')
     search_fields = ('name', 'code')
     list_filter = ('is_active',)
+    inlines = [BusinessDepartmentInline]
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'parent', 'is_active', 'created_at')
+    search_fields = ('name',)
+    list_filter = ('is_active', 'parent')
+
+
+@admin.register(BusinessDepartment)
+class BusinessDepartmentAdmin(admin.ModelAdmin):
+    list_display = ('business', 'department', 'is_active', 'created_at')
+    list_filter = ('business', 'department', 'is_active')
 
 
 @admin.register(User)
@@ -70,13 +92,6 @@ class CustomUserAdmin(UserAdmin):
     ordering = ('username',)
     filter_horizontal = ('businesses',)
     inlines = [UserDepartmentInline, UserReportingInline]
-
-
-@admin.register(Department)
-class DepartmentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'parent', 'created_at')
-    search_fields = ('name',)
-    list_filter = ('parent',)
 
 
 @admin.register(UserDepartment)
