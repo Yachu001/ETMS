@@ -1,0 +1,23 @@
+frontend/src/
+├── components/
+│   ├── common/               <-- Reusable Layout Shells
+│   │   ├── TopNavbar.jsx     <-- Sticky top header, mobile hamburger, on-duty toggle, actions
+│   │   ├── Sidebar.jsx       <-- Desktop collapsible/fixed sidebar
+│   │   └── BottomNav.jsx     <-- Mobile-first bottom action navigation bar (< md screens)
+│   ├── modals/               <-- Interactive Dialogs
+│   │   ├── CreateTaskModal.jsx
+│   │   ├── TaskActionModal.jsx
+│   │   ├── MorningPlannerModal.jsx
+│   │   └── UserProfileModal.jsx
+│   ├── views/                <-- Feature-specific Viewports
+│   │   ├── TaskTable.jsx
+│   │   ├── TodaysCommitmentsTable.jsx
+│   │   ├── UserManagementView.jsx
+│   │   ├── BusinessDeptMatrixView.jsx
+│   │   ├── SupervisorTeamView.jsx
+│   │   ├── AdminDepartmentsView.jsx
+│   │   ├── UserDetailView.jsx
+│   │   └── AuditLogViewer.jsx
+├── pages/
+│   └── Login.jsx
+├── App.jsx                   <-- Lightweight state hub & tab router

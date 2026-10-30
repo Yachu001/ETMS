@@ -16,7 +16,6 @@ from .views import (
     ResetPasswordWithOTPView,
     MySubordinatesListView,
     OrgHierarchyTreeView,
-    AssignReportingView,
 )
 
 router = DefaultRouter()
@@ -48,7 +47,6 @@ urlpatterns = [
     # Org Tree & Reporting Hierarchy
     path('org/my-subordinates/', MySubordinatesListView.as_view(), name='my-subordinates'),
     path('org/tree/', OrgHierarchyTreeView.as_view(), name='org-tree'),
-    path('org/assign-reporting/', AssignReportingView.as_view(), name='assign-reporting'),
 
     # Router Endpoints
     path('', include(router.urls)),

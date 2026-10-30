@@ -1,18 +1,15 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Task, TaskActivityLog, DailyWorkSelection
-from accounts.utils import get_subordinate_ids
-from datetime import datetime
 from django.utils import timezone
+from datetime import datetime
 
+from .models import Task, TaskActivityLog, DailyWorkSelection, TaskDelayReport
+from accounts.utils import get_subordinate_ids
 
 User = get_user_model()
 
+
 def format_short_display_name(user):
-    """
-    Returns full_name up to the first two words if available;
-    otherwise falls back to username.
-    """
     if not user:
         return 'System'
     full_name = getattr(user, 'full_name', '') or ''
@@ -80,12 +77,6 @@ class TaskActivityLogDetailSerializer(serializers.ModelSerializer):
 # 2. TASK CREATION SERIALIZER
 # ==========================================
 class TaskCreateSerializer(serializers.ModelSerializer):
-    """
-    Handles task creation with hierarchy validation:
-    - Super Admin & Admin: Can assign to anyone in the organization.
-    - Supervisor: Can assign down their hierarchy or to themselves.
-    - Base Employee: Can strictly create tasks for themselves (self-assignment).
-    """
     class Meta:
         model = Task
         fields = [
@@ -98,23 +89,52 @@ class TaskCreateSerializer(serializers.ModelSerializer):
             'requires_verification',
         ]
 
+    def validate_due_date(self, value):
+        """
+        Enforce that task overdue/due date cannot be in the past
+        when creating a new task or setting its deadline.
+        """
+        if value:
+            today = timezone.localtime(timezone.now()).date()
+            if value < today:
+                raise serializers.ValidationError("Task due date must be today or a future date.")
+        return value
+
     def validate_assigned_to(self, value):
+        # 1. Guard against assigning to disabled or inactive users
+        if value:
+            is_disabled = not value.is_active or getattr(value, 'is_disabled', False)
+            if is_disabled:
+                raise serializers.ValidationError("Cannot assign tasks to a disabled or inactive user.")
+
         request = self.context.get('request')
         actor = getattr(request, 'user', None)
 
         if not actor or not actor.is_authenticated:
             return value
 
-        # Org Admins can assign globally
-        if getattr(actor, 'is_org_admin', False) or actor.is_superuser:
+        # Super Admin and Admin can assign globally
+        if actor.is_superuser or actor.role in ['ADMIN', 'SUPER_ADMIN']:
             return value
 
-        # Supervisors can assign only down their reporting chain or to themselves
-        if getattr(actor, 'is_supervisor_user', False):
-            allowed_subordinate_ids = get_subordinate_ids(actor, include_self=True)
-            if value.id not in allowed_subordinate_ids:
+        # Business Admin: Can assign to employees in their business
+        if actor.role == 'BUSINESS_ADMIN':
+            if actor.business and (value.business == actor.business or (value.matrix and value.matrix.business == actor.business)):
+                return value
+            raise serializers.ValidationError(f"Cannot assign tasks outside your business ({actor.business.name if actor.business else 'None'}).")
+
+        # Department Admin: Can assign to employees in their department
+        if actor.role == 'DEPT_HEAD':
+            if actor.department and (value.department == actor.department or (value.matrix and value.matrix.department == actor.department)):
+                return value
+            raise serializers.ValidationError(f"Cannot assign tasks outside your department ({actor.department.name if actor.department else 'None'}).")
+
+        # Supervisor: Can assign down their hierarchy or to themselves
+        if actor.role == 'SUPERVISOR':
+            allowed_subordinates = get_subordinate_ids(actor, include_self=True)
+            if value.id not in allowed_subordinates and value.matrix != actor.incharge_matrix.first():
                 raise serializers.ValidationError(
-                    f"You cannot assign tasks to {value.username}. They are outside your reporting tree."
+                    f"You cannot assign tasks to {value.username}. They are outside your matrix / subordinate line."
                 )
             return value
 
@@ -131,7 +151,6 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         validated_data['created_by'] = user
         assigned_to = validated_data.get('assigned_to')
 
-        # Self-created task skips pending and starts at ACCEPTED (0% - Not Started)
         if assigned_to == user:
             validated_data['status'] = 'ACCEPTED'
             validated_data['progress_percentage'] = 0
@@ -141,7 +160,6 @@ class TaskCreateSerializer(serializers.ModelSerializer):
 
         task = super().create(validated_data)
 
-        # Append initial immutable audit log entry
         TaskActivityLog.objects.create(
             task=task,
             actor=user,
@@ -178,7 +196,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'assigned_to',
             'assigned_to_name',
             'due_date',
-            'is_overdue',   # <--- Added
+            'is_overdue',
             'is_committed_today',
             'requires_verification',
             'verified_by',
@@ -200,7 +218,6 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
     def get_is_committed_today(self, obj):
-        """Checks if this task is committed in today's DailyWorkSelection."""
         today = timezone.localtime(timezone.now()).date()
         return DailyWorkSelection.objects.filter(task=obj, date=today).exists()
 
@@ -221,11 +238,9 @@ class TaskSerializer(serializers.ModelSerializer):
             except ValueError:
                 return False
 
-        # Past date -> Overdue
         if today > task_due:
             return True
 
-        # Today -> Check assignee's shift end time
         if today == task_due and obj.assigned_to:
             shift_end = getattr(obj.assigned_to, 'shift_end_time', None)
             if shift_end and current_time >= shift_end:
@@ -238,13 +253,10 @@ class TaskSerializer(serializers.ModelSerializer):
 # 4. TASK ACTION SERIALIZER
 # ==========================================
 class TaskActionSerializer(serializers.Serializer):
-    """
-    Handles state transitions (Accept, Reject, Progress Update, Verify)
-    """
-    action = serializers.ChoiceField(choices=['ACCEPT', 'REJECT', 'UPDATE_PROGRESS', 'VERIFY', 'REOPEN'])
+    action = serializers.ChoiceField(choices=['ACCEPT', 'REJECT', 'UPDATE_PROGRESS', 'VERIFY', 'REOPEN', 'CANCEL'])
     progress_percentage = serializers.IntegerField(min_value=0, max_value=100, required=False)
     status = serializers.ChoiceField(
-        choices=['ACCEPTED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_VERIFICATION', 'VERIFIED', 'REJECTED'],
+        choices=['ACCEPTED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_VERIFICATION', 'VERIFIED', 'REJECTED', 'CANCELLED'],
         required=False
     )
     rejection_reason = serializers.CharField(required=False, allow_blank=True)
@@ -290,3 +302,21 @@ class DailyCommitmentSerializer(serializers.ModelSerializer):
             'is_overdue',
         ]
         read_only_fields = fields
+
+
+# ==========================================
+# 6. TASK DELAY REPORT SERIALIZER
+# ==========================================
+class TaskDelayReportSerializer(serializers.ModelSerializer):
+    submitted_by_name = serializers.CharField(source='submitted_by.username', read_only=True)
+    routed_to_name = serializers.CharField(source='routed_to.username', read_only=True)
+    task_title = serializers.CharField(source='task.title', read_only=True)
+
+    class Meta:
+        model = TaskDelayReport
+        fields = [
+            'id', 'task', 'task_title', 'submitted_by', 'submitted_by_name',
+            'routed_to', 'routed_to_name', 'reason_category', 'explanation',
+            'expected_completion_date', 'created_at'
+        ]
+        read_only_fields = ['id', 'submitted_by', 'submitted_by_name', 'routed_to_name', 'task_title', 'created_at']

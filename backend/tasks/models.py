@@ -1,3 +1,5 @@
+# backend/tasks/models.py
+
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -62,8 +64,14 @@ class Task(models.Model):
         related_name='verified_tasks'
     )
 
+    # Overdue Locking & Submissions
+    overdue_reason_submitted = models.BooleanField(
+        default=False,
+        help_text="True once employee submits an overdue explanation form"
+    )
+
     # Rejection Metadata
-    rejection_reason = models.CharField(max_length=20, choices=REJECTION_REASONS, null=True, blank=True)
+    rejection_reason = models.CharField(max_length=50, choices=REJECTION_REASONS, null=True, blank=True)
     rejection_remarks = models.TextField(null=True, blank=True)
 
     # State Flags & Timestamps
@@ -82,15 +90,56 @@ class Task(models.Model):
     def is_self_created(self):
         return self.created_by_id == self.assigned_to_id
 
+    @property
+    def is_overdue(self):
+        if not self.due_date:
+            return False
+        if self.status in ['VERIFIED', 'CANCELLED']:
+            return False
+            
+        today = timezone.localtime(timezone.now()).date()
+        if self.due_date < today:
+            return True
+            
+        # If due today, check whether the shift end time has passed
+        if self.due_date == today and self.assigned_to:
+            current_time = timezone.localtime(timezone.now()).time()
+            shift_end = getattr(self.assigned_to, 'shift_end_time', None)
+            if shift_end and current_time >= shift_end:
+                return True
+                
+        return False
+
     def __str__(self):
         return f"{self.title} [{self.get_status_display()}] - Assignee: {self.assigned_to.username}"
 
 
+class DailyWorkSelection(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='daily_commitments'
+    )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='daily_selections'
+    )
+    date = models.DateField(default=timezone.now)
+    has_status_changed_today = models.BooleanField(default=False)
+    is_overdue = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'task', 'date')
+        verbose_name = "Daily Work Selection"
+        verbose_name_plural = "Daily Work Selections"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.task.title} ({self.date})"
+
 
 class TaskActivityLog(models.Model):
-    """
-    Immutable audit trail. Rows can only be created, never edited or deleted.
-    """
     task = models.ForeignKey(
         Task,
         on_delete=models.CASCADE,
@@ -124,67 +173,63 @@ class TaskActivityLog(models.Model):
         return f"Log for Task #{self.task_id} [{self.new_status}] by {self.actor} at {self.timestamp.strftime('%Y-%m-%d %H:%M')}"
 
 
-class DailyWorkSelection(models.Model):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='daily_commitments'
+class TaskReasonSubmission(models.Model):
+    """
+    Unified Ledger for Authority Review:
+    - Task assignment rejection reasons
+    - Overdue delay reports (with expected new due date)
+    - Shift-end daily commitment no-action reasons
+    - Auto-triggered rollover flags when user fails to submit
+    """
+    FORM_TYPES = (
+        ('REJECTION', 'Task Assignment Rejection'),
+        ('OVERDUE_DELAY', 'Overdue Task Delay Report'),
+        ('NO_ACTION_TODAY', 'Today Commit No Action Reason'),
+        ('AUTO_UNSUBMITTED', 'Auto Triggered: Unsubmitted Daily Inaction'),
     )
-    task = models.ForeignKey(
-        'tasks.Task',
-        on_delete=models.CASCADE,
-        related_name='daily_selections'
-    )
-    date = models.DateField(default=timezone.now)
-    has_status_changed_today = models.BooleanField(default=False)
-    is_overdue = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        unique_together = ('user', 'task', 'date')
-        verbose_name = "Daily Work Selection"
-        verbose_name_plural = "Daily Work Selections"
-
-    def __str__(self):
-        return f"{self.user.username} - {self.task.title} ({self.date})"
-
-# Append to backend/tasks/models.py
-
-class TaskDelayReport(models.Model):
-    DELAY_REASONS = (
-        ('BLOCKER', 'External Dependency / Blocker'),
-        ('BANDWIDTH', 'Capacity / Unforeseen Workload'),
-        ('SCOPE', 'Requirement Changes / Scope Creep'),
-        ('TECHNICAL', 'Technical Roadblock / Bug'),
-        ('OTHER', 'Other (See remarks)'),
+    STATUS_CHOICES = (
+        ('PENDING_REVIEW', 'Pending Review'),
+        ('RESCHEDULED', 'Due Date Rescheduled'),
+        ('CANCELLED', 'Task Cancelled'),
+        ('VERIFIED', 'Verified / Acknowledged'),
     )
 
     task = models.ForeignKey(
         Task,
         on_delete=models.CASCADE,
-        related_name='delay_reports'
+        related_name='reason_submissions'
     )
     submitted_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        User,
         on_delete=models.CASCADE,
-        related_name='submitted_delay_reports'
+        related_name='submitted_reasons'
     )
-    routed_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+    reviewed_by = models.ForeignKey(
+        User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='received_delay_reports'
+        related_name='reviewed_reasons'
     )
-    reason_category = models.CharField(max_length=30, choices=DELAY_REASONS)
-    explanation = models.TextField()
-    expected_completion_date = models.DateField()
+    form_type = models.CharField(max_length=30, choices=FORM_TYPES)
+    reason_category = models.CharField(max_length=100)
+    explanation = models.TextField(blank=True, default='')
+    expected_due_date = models.DateField(null=True, blank=True)
+
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='PENDING_REVIEW')
+    reviewer_remarks = models.TextField(blank=True, default='')
+    actioned_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
-        verbose_name = "Task Delay Report"
-        verbose_name_plural = "Task Delay Reports"
+        verbose_name = "Task Reason Submission"
+        verbose_name_plural = "Task Reason Submissions"
 
     def __str__(self):
-        return f"Delay Report for {self.task.title} by {self.submitted_by.username} ({self.created_at.date()})"
+        return f"{self.get_form_type_display()} - Task #{self.task_id} [{self.status}]"
+
+
+# Backward-compatible proxy to prevent breaking existing imports
+TaskDelayReport = TaskReasonSubmission

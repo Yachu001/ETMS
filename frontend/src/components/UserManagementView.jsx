@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, UserPlus, Search, Shield, Building2, Building, 
-  CheckCircle, XCircle, Edit2, Eye, UserX, Clock, X, Lock
+  CheckCircle, XCircle, Edit2, Eye, UserX, Clock, X, Lock, Layers, Network
 } from 'lucide-react';
 import api from '../api/axios';
-import EmployeeProfileModal from './EmployeeProfileModal';
+import UserProfileModal from './UserProfileModal';
 
 export default function UserManagementView({ currentUser }) {
   const [users, setUsers] = useState([]);
@@ -16,14 +16,14 @@ export default function UserManagementView({ currentUser }) {
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [viewingProfileUser, setViewingProfileUser] = useState(null);
+  const [viewingProfileUserId, setViewingProfileUserId] = useState(null);
 
-  // Metadata state
+  // Form options from backend
   const [formOptions, setFormOptions] = useState({
+    matrices: [],
     businesses: [],
     departments: [],
-    candidate_managers: [],
-    defaults: {}
+    currentUser: {}
   });
 
   useEffect(() => {
@@ -45,25 +45,10 @@ export default function UserManagementView({ currentUser }) {
 
   const fetchFormOptions = async () => {
     try {
-      // 1. Primary: Load scoped form options from dedicated endpoint
       const res = await api.get('/auth/employees/manage/form-options/');
       setFormOptions(res.data);
-    } catch (e) {
-      console.warn('Form options endpoint unavailable, falling back to standard list APIs');
-      try {
-        const [bizRes, deptRes] = await Promise.all([
-          api.get('/auth/businesses/'),
-          api.get('/auth/departments/')
-        ]);
-        setFormOptions({
-          businesses: bizRes.data,
-          departments: deptRes.data,
-          candidate_managers: [],
-          defaults: {}
-        });
-      } catch (err) {
-        console.error('Fallback metadata fetch failed', err);
-      }
+    } catch (err) {
+      console.error('Failed to fetch form options', err);
     }
   };
 
@@ -87,39 +72,6 @@ export default function UserManagementView({ currentUser }) {
     EMPLOYEE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   };
 
-  // Helper: Display items with star for primary
-  const renderRelationshipCell = (items, fallbackText, primaryKey = 'is_primary', nameKey = 'name') => {
-    if (!items || items.length === 0) {
-      return <span className="text-slate-400 italic text-[11px]">{fallbackText}</span>;
-    }
-
-    if (items.length === 1) {
-      const item = items[0];
-      return (
-        <span className="font-medium text-slate-800 text-xs">
-          {item[nameKey] || item.username || item.code}
-        </span>
-      );
-    }
-
-    const primaryItem = items.find((i) => i[primaryKey]) || items[0];
-    const otherCount = items.length - 1;
-
-    return (
-      <div className="space-y-0.5">
-        <div className="flex items-center gap-1 font-medium text-slate-800 text-xs">
-          <span>{primaryItem[nameKey] || primaryItem.username || primaryItem.code}</span>
-          <span className="text-amber-500 font-bold text-xs" title="Primary">★</span>
-        </div>
-        {otherCount > 0 && (
-          <div className="text-[10px] text-slate-400">
-            +{otherCount} more
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = 
@@ -141,7 +93,6 @@ export default function UserManagementView({ currentUser }) {
     <div className="space-y-4">
       {/* Search & Actions Bar */}
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Left: Search Bar */}
         <div className="relative w-full md:w-80 self-start">
           <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
           <input
@@ -149,16 +100,15 @@ export default function UserManagementView({ currentUser }) {
             placeholder="Search name, username, EID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
+            className="w-full pl-9 pr-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
           />
         </div>
 
-        {/* Right: Filters & Create User Button */}
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-end self-end">
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700"
+            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700"
           >
             <option value="ALL">All Roles</option>
             {currentUser.role === 'SUPER_ADMIN' && <option value="ADMIN">Main Admins</option>}
@@ -175,7 +125,7 @@ export default function UserManagementView({ currentUser }) {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700"
+            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700"
           >
             <option value="ALL">All Status</option>
             <option value="ACTIVE">Active Only</option>
@@ -184,7 +134,7 @@ export default function UserManagementView({ currentUser }) {
 
           <button
             onClick={() => setIsCreateOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition shadow-xs shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition shadow-xs shrink-0 cursor-pointer"
           >
             <UserPlus size={15} /> + Create User
           </button>
@@ -199,9 +149,10 @@ export default function UserManagementView({ currentUser }) {
               <tr>
                 <th className="py-3 px-4">Employee</th>
                 <th className="py-3 px-4">Role & Designation</th>
+                <th className="py-3 px-4">Assigned Matrix</th>
                 <th className="py-3 px-4">Business</th>
                 <th className="py-3 px-4">Department</th>
-                <th className="py-3 px-4">Reports To</th>
+                <th className="py-3 px-4">Direct Lead</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -209,16 +160,15 @@ export default function UserManagementView({ currentUser }) {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-12 text-slate-400">Loading directory...</td>
+                  <td colSpan="8" className="text-center py-12 text-slate-400">Loading directory...</td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-12 text-slate-400">No users match your criteria.</td>
+                  <td colSpan="8" className="text-center py-12 text-slate-400">No users match your criteria.</td>
                 </tr>
               ) : (
                 filteredUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50/70 transition">
-                    {/* Employee */}
                     <td className="py-3 px-4">
                       <div>
                         <div className="font-semibold text-slate-900">{u.full_name || u.username}</div>
@@ -228,7 +178,6 @@ export default function UserManagementView({ currentUser }) {
                       </div>
                     </td>
 
-                    {/* Role & Designation */}
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                         roleBadgeStyles[u.role] || 'bg-slate-100 text-slate-700 border-slate-200'
@@ -240,22 +189,30 @@ export default function UserManagementView({ currentUser }) {
                       </div>
                     </td>
 
-                    {/* Business */}
                     <td className="py-3 px-4">
-                      {renderRelationshipCell(u.businesses, 'No Business', 'is_primary', 'name')}
+                      <span className="font-medium text-slate-800">
+                        {u.matrix_name || 'No Matrix'}
+                      </span>
                     </td>
 
-                    {/* Department */}
                     <td className="py-3 px-4">
-                      {renderRelationshipCell(u.departments, 'No Department', 'is_primary', 'name')}
+                      <span className="font-medium text-slate-800">
+                        {u.business_name || 'No Business'}
+                      </span>
                     </td>
 
-                    {/* Reports To */}
                     <td className="py-3 px-4">
-                      {renderRelationshipCell(u.reporting_managers, 'None', 'is_primary', 'full_name')}
+                      <span className="font-medium text-slate-800">
+                        {u.department_name || 'No Department'}
+                      </span>
                     </td>
 
-                    {/* Status Column */}
+                    <td className="py-3 px-4">
+                      <span className="font-medium text-slate-800">
+                        {u.manager_name || 'Unassigned'}
+                      </span>
+                    </td>
+
                     <td className="py-3 px-4 whitespace-nowrap">
                       {u.is_active ? (
                         <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
@@ -279,12 +236,11 @@ export default function UserManagementView({ currentUser }) {
                       )}
                     </td>
 
-                    {/* Actions */}
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           title="View Profile"
-                          onClick={() => setViewingProfileUser(u)}
+                          onClick={() => setViewingProfileUserId(u.id)}
                           className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-indigo-600 transition"
                         >
                           <Eye size={15} />
@@ -296,7 +252,7 @@ export default function UserManagementView({ currentUser }) {
                         >
                           <Edit2 size={15} />
                         </button>
-                        {u.id !== currentUser.id && (
+                        {u.id !== currentUser.id && currentUser.role !== 'SUPERVISOR' && (
                           <button
                             title={u.is_active ? 'Disable Account' : 'Enable Account'}
                             onClick={() => handleToggleStatus(u)}
@@ -317,17 +273,18 @@ export default function UserManagementView({ currentUser }) {
         </div>
       </div>
 
-      {/* Profile Modal */}
-      {viewingProfileUser && (
-        <EmployeeProfileModal
-          user={viewingProfileUser}
-          onClose={() => setViewingProfileUser(null)}
+      {/* User Profile Modal */}
+      {viewingProfileUserId && (
+        <UserProfileModal
+          isOpen={Boolean(viewingProfileUserId)}
+          userId={viewingProfileUserId}
+          onClose={() => setViewingProfileUserId(null)}
         />
       )}
 
-      {/* Scoped Create User Modal */}
+      {/* Create User Modal */}
       {isCreateOpen && (
-        <ScopedCreateUserModal
+        <MatrixCreateUserModal
           isOpen={isCreateOpen}
           onClose={() => setIsCreateOpen(false)}
           currentUser={currentUser}
@@ -339,9 +296,9 @@ export default function UserManagementView({ currentUser }) {
         />
       )}
 
-      {/* Full Edit User Modal */}
+      {/* Edit User Modal */}
       {editingUser && (
-        <FullEditUserModal
+        <MatrixEditUserModal
           user={editingUser}
           onClose={() => setEditingUser(null)}
           currentUser={currentUser}
@@ -357,10 +314,10 @@ export default function UserManagementView({ currentUser }) {
 }
 
 // -------------------------------------------------------------
-// SCOPED USER CREATION MODAL WITH AUTOMATIC MATRIX BINDING
+// MATRIX-FIRST USER CREATION MODAL
 // -------------------------------------------------------------
-function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSuccess }) {
-  const { businesses, departments, candidate_managers, defaults } = formOptions;
+function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSuccess }) {
+  const { matrices = [] } = formOptions;
 
   const [formData, setFormData] = useState({
     username: '',
@@ -369,46 +326,44 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
     phone: '',
     role: 'EMPLOYEE',
     designation: '',
-    department_id: '',
-    business_ids: [],
-    reports_to_id: '',
+    matrix_id: '',
     shift_start_time: '09:00:00',
     shift_end_time: '18:00:00',
     date_of_joining: new Date().toISOString().split('T')[0],
     password: ''
   });
 
+  const [selectedMatrixDetails, setSelectedMatrixDetails] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initialize auto-selected single items and locks
+  // Auto-lock for supervisor
   useEffect(() => {
-    setFormData(prev => {
-      const next = { ...prev };
-
-      // Role Auto-lock
-      if (currentUser.role === 'SUPERVISOR') {
-        next.role = 'EMPLOYEE';
-        next.reports_to_id = currentUser.id;
+    if (currentUser.role === 'SUPERVISOR') {
+      const supMatrix = matrices.find(m => m.supervisor_id === currentUser.id);
+      if (supMatrix) {
+        setFormData(prev => ({
+          ...prev,
+          role: 'EMPLOYEE',
+          matrix_id: supMatrix.id
+        }));
+        setSelectedMatrixDetails(supMatrix);
       }
+    }
+  }, [currentUser, matrices]);
 
-      // Department Auto-selection
-      if (defaults.department_id) {
-        next.department_id = defaults.department_id;
-      } else if (departments.length === 1) {
-        next.department_id = departments[0].id;
-      }
+  const handleMatrixChange = (matrixIdStr) => {
+    if (!matrixIdStr || matrixIdStr === 'none') {
+      setFormData(prev => ({ ...prev, matrix_id: '' }));
+      setSelectedMatrixDetails(null);
+      return;
+    }
 
-      // Business Auto-selection
-      if (defaults.business_id) {
-        next.business_ids = [defaults.business_id];
-      } else if (businesses.length === 1) {
-        next.business_ids = [businesses[0].id];
-      }
-
-      return next;
-    });
-  }, [defaults, departments, businesses, currentUser]);
+    const mId = parseInt(matrixIdStr, 10);
+    const found = matrices.find(m => m.id === mId);
+    setFormData(prev => ({ ...prev, matrix_id: mId }));
+    setSelectedMatrixDetails(found || null);
+  };
 
   const getSelectableRoles = () => {
     if (currentUser.role === 'SUPER_ADMIN') {
@@ -423,27 +378,25 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
     return ['EMPLOYEE'];
   };
 
-  const isSupervisor = currentUser.role === 'SUPERVISOR';
-  const isBusinessLocked = defaults.is_business_locked || (businesses.length === 1 && !['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role));
-  const isDepartmentLocked = defaults.is_department_locked || (departments.length === 1 && !['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role));
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
     const payload = { ...formData };
-    if (!payload.department_id) delete payload.department_id;
-    if (!payload.business_ids || payload.business_ids.length === 0) delete payload.business_ids;
-    if (!payload.reports_to_id) delete payload.reports_to_id;
-    if (!payload.password) delete payload.password; // Django fallback: TempPass@123
+    if (!payload.matrix_id) {
+      delete payload.matrix_id;
+    }
+    if (!payload.password) {
+      delete payload.password;
+    }
 
     try {
       await api.post('/auth/employees/manage/', payload);
       onSuccess();
     } catch (err) {
       const errData = err.response?.data;
-      setError(typeof errData === 'object' ? JSON.stringify(errData) : 'Failed to provision user');
+      setError(typeof errData === 'object' ? JSON.stringify(errData) : 'Failed to create user');
     } finally {
       setSubmitting(false);
     }
@@ -453,7 +406,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-100 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-base font-bold text-slate-900">Provision New User</h2>
+          <h2 className="text-base font-bold text-slate-900">Provision User</h2>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
             <X size={18} />
           </button>
@@ -470,7 +423,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 required
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
             <div>
@@ -479,7 +432,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 type="text"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
@@ -492,7 +445,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 required
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
             <div>
@@ -501,7 +454,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 type="text"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
@@ -511,9 +464,9 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
               <label className="block text-xs font-medium text-slate-700 mb-1">Role</label>
               <select
                 value={formData.role}
-                disabled={isSupervisor}
+                disabled={currentUser.role === 'SUPERVISOR'}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-500"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden disabled:bg-slate-100 disabled:text-slate-500 font-medium"
               >
                 {getSelectableRoles().map((r) => (
                   <option key={r} value={r}>{r}</option>
@@ -527,82 +480,66 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 placeholder="e.g. Associate Analyst"
                 value={formData.designation}
                 onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Operating Business Dropdown */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
-                <span>Operating Business</span>
-                {isBusinessLocked && <Lock size={12} className="text-slate-400" title="Locked by your matrix role" />}
-              </label>
-              <select
-                value={formData.business_ids?.[0] || ''}
-                disabled={isBusinessLocked}
-                onChange={(e) => {
-                  const val = e.target.value ? [parseInt(e.target.value)] : [];
-                  setFormData({ ...formData, business_ids: val });
-                }}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-600 font-medium"
-              >
-                {!isBusinessLocked && <option value="">Select Business</option>}
-                {businesses.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Department Dropdown */}
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
-                <span>Department</span>
-                {isDepartmentLocked && <Lock size={12} className="text-slate-400" title="Locked by your matrix role" />}
-              </label>
-              <select
-                value={formData.department_id || ''}
-                disabled={isDepartmentLocked}
-                onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-600 font-medium"
-              >
-                {!isDepartmentLocked && <option value="">Select Department</option>}
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Reporting Line Assignment */}
+          {/* Matrix Selection Dropdown */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
-              <span>Direct Reporting Manager</span>
-              {isSupervisor && <Lock size={12} className="text-slate-400" title="Subordinates report directly to you" />}
+              <span>Operational Matrix Branch</span>
+              {currentUser.role === 'SUPERVISOR' && <Lock size={12} className="text-slate-400" title="Locked to your matrix" />}
             </label>
             <select
-              value={formData.reports_to_id || ''}
-              disabled={isSupervisor}
-              onChange={(e) => setFormData({ ...formData, reports_to_id: e.target.value })}
-              className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-600 font-medium"
+              value={formData.matrix_id || 'none'}
+              disabled={currentUser.role === 'SUPERVISOR'}
+              onChange={(e) => handleMatrixChange(e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden disabled:bg-slate-100 font-medium"
             >
-              {isSupervisor ? (
-                <option value={currentUser.id}>{currentUser.full_name || currentUser.username} (Self)</option>
-              ) : (
-                <>
-                  <option value="">Default (Direct to Current User)</option>
-                  {candidate_managers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.full_name || m.username} ({m.role})
-                    </option>
-                  ))}
-                </>
-              )}
+              <option value="none">-- No Matrix (Unassigned Pool) --</option>
+              {matrices.map((m) => (
+                <option key={m.id} value={m.id}>{m.title}</option>
+              ))}
             </select>
           </div>
 
-          {/* Shift Start & End Boundaries */}
+          {/* Read-Only Matrix Auto-Derived Badges */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
+            <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+              <Layers size={13} className="text-indigo-600" />
+              Auto-Assigned Matrix Attributes
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
+                </span>
+              </div>
+
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 uppercase block font-medium">
+                {formData.role === 'SUPERVISOR' ? 'Matrix Incharge Designation' : 'Direct Reporting Manager'}
+              </span>
+              <span className="font-semibold text-indigo-700">
+                {formData.role === 'SUPERVISOR'
+                  ? 'Self will be registered as Incharge of this Matrix'
+                  : (selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'None / Unassigned')}
+              </span>
+            </div>
+          </div>
+
+          {/* Shift Schedule */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Shift Start Time</label>
@@ -610,7 +547,7 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 type="time"
                 value={formData.shift_start_time}
                 onChange={(e) => setFormData({ ...formData, shift_start_time: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden font-mono"
               />
             </div>
             <div>
@@ -619,19 +556,19 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
                 type="time"
                 value={formData.shift_end_time}
                 onChange={(e) => setFormData({ ...formData, shift_end_time: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden font-mono"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Custom Password (Optional)</label>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Temporary Password (Optional)</label>
             <input
               type="password"
               placeholder="Leave blank for 'TempPass@123'"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+              className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
             />
           </div>
 
@@ -658,10 +595,10 @@ function ScopedCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
 }
 
 // -------------------------------------------------------------
-// FULL USER EDIT MODAL (ALL FIELDS EDITABLE EXCEPT EID)
+// MATRIX-FIRST USER EDIT MODAL
 // -------------------------------------------------------------
-function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess }) {
-  const { businesses, departments, candidate_managers, defaults } = formOptions;
+function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSuccess }) {
+  const { matrices = [] } = formOptions;
 
   const [formData, setFormData] = useState({
     full_name: user.full_name || '',
@@ -670,19 +607,32 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
     phone: user.phone || '',
     designation: user.designation || '',
     role: user.role,
-    department_id: user.primary_department_id || (user.departments?.[0]?.id || ''),
-    business_ids: (user.businesses || []).map(b => b.id),
-    reports_to_id: user.primary_manager_id || (user.reporting_managers?.[0]?.id || ''),
+    matrix_id: user.matrix_id || '',
     shift_start_time: user.shift_start_time || '09:00:00',
     shift_end_time: user.shift_end_time || '18:00:00',
     date_of_joining: user.date_of_joining || ''
   });
+
+  const [selectedMatrixDetails, setSelectedMatrixDetails] = useState(
+    matrices.find(m => m.id === user.matrix_id) || null
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const canEditRoles = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
-  const canEditReporting = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser.role);
-  const isBusinessLocked = defaults.is_business_locked && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ADMIN';
-  const isDepartmentLocked = defaults.is_department_locked && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ADMIN';
+  const isSupervisor = currentUser.role === 'SUPERVISOR';
+
+  const handleMatrixChange = (matrixIdStr) => {
+    if (!matrixIdStr || matrixIdStr === 'none') {
+      setFormData(prev => ({ ...prev, matrix_id: 'none' }));
+      setSelectedMatrixDetails(null);
+      return;
+    }
+
+    const mId = parseInt(matrixIdStr, 10);
+    const found = matrices.find(m => m.id === mId);
+    setFormData(prev => ({ ...prev, matrix_id: mId }));
+    setSelectedMatrixDetails(found || null);
+  };
 
   const handleUpdate = async (e) => {
     e.preventDefault();
@@ -720,7 +670,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="text"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
             <div>
@@ -730,7 +680,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 required
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
@@ -743,7 +693,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 required
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
             <div>
@@ -752,7 +702,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="text"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
@@ -764,7 +714,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="text"
                 value={formData.designation}
                 onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
             <div>
@@ -773,60 +723,60 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="date"
                 value={formData.date_of_joining}
                 onChange={(e) => setFormData({ ...formData, date_of_joining: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Primary Business</label>
-              <select
-                value={formData.business_ids?.[0] || ''}
-                disabled={isBusinessLocked}
-                onChange={(e) => {
-                  const val = e.target.value ? [parseInt(e.target.value)] : [];
-                  setFormData({ ...formData, business_ids: val });
-                }}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-600 font-medium"
-              >
-                <option value="">No Business</option>
-                {businesses.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Department</label>
-              <select
-                value={formData.department_id || ''}
-                disabled={isDepartmentLocked}
-                onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-100 disabled:text-slate-600 font-medium"
-              >
-                <option value="">No Department</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
+          {/* Matrix Reassignment Dropdown */}
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+              <span>Operational Matrix Branch</span>
+              {isSupervisor && <Lock size={12} className="text-slate-400" title="Supervisors cannot move members to another matrix" />}
+            </label>
+            <select
+              value={formData.matrix_id || 'none'}
+              disabled={isSupervisor}
+              onChange={(e) => handleMatrixChange(e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden disabled:bg-slate-100 font-medium"
+            >
+              <option value="none">-- No Matrix (Unassigned Pool) --</option>
+              {matrices.map((m) => (
+                <option key={m.id} value={m.id}>{m.title}</option>
+              ))}
+            </select>
           </div>
 
-          {canEditReporting && (
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Reporting Lead / Manager</label>
-              <select
-                value={formData.reports_to_id || ''}
-                onChange={(e) => setFormData({ ...formData, reports_to_id: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-              >
-                <option value="">None (Top-Level)</option>
-                {candidate_managers.map((m) => (
-                  <option key={m.id} value={m.id}>{m.full_name || m.username} ({m.role})</option>
-                ))}
-              </select>
+          {/* Auto-derived Matrix Badges */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
+            <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+              <Layers size={13} className="text-indigo-600" />
+              Derived Relationships
             </div>
-          )}
+            
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
+                </span>
+              </div>
+
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-400 uppercase block font-medium">Direct Manager</span>
+              <span className="font-semibold text-indigo-700">
+                {selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'Unassigned Lead'}
+              </span>
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -835,7 +785,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="time"
                 value={formData.shift_start_time}
                 onChange={(e) => setFormData({ ...formData, shift_start_time: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden font-mono"
               />
             </div>
             <div>
@@ -844,7 +794,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
                 type="time"
                 value={formData.shift_end_time}
                 onChange={(e) => setFormData({ ...formData, shift_end_time: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden font-mono"
               />
             </div>
           </div>
@@ -855,7 +805,7 @@ function FullEditUserModal({ user, onClose, currentUser, formOptions, onSuccess 
               <select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden"
               >
                 {currentUser.role === 'SUPER_ADMIN' && <option value="ADMIN">ADMIN</option>}
                 <option value="DEPT_HEAD">DEPT_HEAD</option>

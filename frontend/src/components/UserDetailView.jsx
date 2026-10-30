@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, CheckSquare, Clock, AlertTriangle, AlertCircle, 
-  Calendar, CheckCircle2, User, Building, Shield, Edit3, X, XCircle, Tag
+  Calendar, CheckCircle2, User, Building, Shield, Edit3, X, XCircle, Tag, Layers
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -43,9 +43,9 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
         <h3 className="text-sm font-bold text-slate-800">Employee Details Unavailable</h3>
         <button
           onClick={onBack}
-          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium"
+          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer"
         >
-          &larr; Back to User Management
+          &larr; Back to Overview
         </button>
       </div>
     );
@@ -53,7 +53,6 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
 
   const { user, tasks } = data;
 
-  // Banner status logic
   const renderBannerStatus = () => {
     if (!user.is_active) {
       return (
@@ -71,7 +70,6 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
       );
     }
 
-    // User is active and present
     if (user.today_committed_count === 0) {
       return (
         <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 border border-amber-300 font-bold px-3 py-1 rounded-full text-xs animate-pulse">
@@ -96,16 +94,15 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
 
   return (
     <div className="space-y-6">
-      {/* Header Bar with direct Back to User Management */}
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition flex items-center gap-1 text-xs font-semibold"
-            title="Return to User Management Console"
+            className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition flex items-center gap-1 text-xs font-semibold cursor-pointer"
+            title="Return to Overview"
           >
             <ArrowLeft size={18} />
-            {/* <span className="hidden sm:inline">User Management</span> */}
           </button>
           <div>
             <div className="flex items-center gap-2">
@@ -115,7 +112,7 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {user.designation || 'Staff'} • {user.department} • <strong>{user.primary_manager}</strong>
+              {user.designation || 'Staff'} • <strong>Matrix:</strong> {user.matrix || 'No Matrix'} • <strong>Lead:</strong> {user.primary_manager || 'None'}
             </p>
           </div>
         </div>
@@ -133,7 +130,7 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
             <div className="text-2xl font-bold text-slate-900 mt-1">
               {user.total_assigned_count || tasks.length}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">All tasks assigned to employee</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Total assignments in queue</p>
           </div>
           <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center">
             <CheckSquare size={20} />
@@ -209,29 +206,29 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/70 transition">
                       <td className="py-3 px-4 font-semibold text-slate-900">
-  <div className="flex items-center gap-2">
-    {task.is_committed_today && (
-      <span 
-        className="relative flex h-2.5 w-2.5 shrink-0" 
-        title="Active in Today's Commitments Plan"
-      >
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-      </span>
-    )}
-    <span className="truncate max-w-xs">{task.title}</span>
-    {task.is_committed_today && (
-      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-mono shrink-0">
-        Today
-      </span>
-    )}
-  </div>
-  {task.description && (
-    <div className="text-[11px] text-slate-400 font-normal truncate max-w-xs mt-0.5">
-      {task.description}
-    </div>
-  )}
-</td>
+                        <div className="flex items-center gap-2">
+                          {task.is_committed_today && (
+                            <span 
+                              className="relative flex h-2.5 w-2.5 shrink-0" 
+                              title="Active in Today's Commitments Plan"
+                            >
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                            </span>
+                          )}
+                          <span className="truncate max-w-xs">{task.title}</span>
+                          {task.is_committed_today && (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-mono shrink-0">
+                              Today
+                            </span>
+                          )}
+                        </div>
+                        {task.description && (
+                          <div className="text-[11px] text-slate-400 font-normal truncate max-w-xs mt-0.5">
+                            {task.description}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                           task.priority === 'Urgent'
@@ -270,7 +267,7 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => setEditingTask(task)}
-                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium border border-blue-200 transition flex items-center gap-1 ml-auto"
+                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium border border-blue-200 transition flex items-center gap-1 ml-auto cursor-pointer"
                         >
                           <Edit3 size={13} /> Update
                         </button>
@@ -284,7 +281,6 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
         </div>
       </div>
 
-      {/* Task Management & Edit Modal */}
       {editingTask && (
         <ManagerTaskEditModal
           task={editingTask}
@@ -299,9 +295,6 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
   );
 }
 
-// -------------------------------------------------------------
-// SUPERVISOR / MANAGER TASK UPDATE & RESCHEDULING MODAL
-// -------------------------------------------------------------
 function ManagerTaskEditModal({ task, onClose, onSuccess }) {
   const [title, setTitle] = useState(task.title || '');
   const [description, setDescription] = useState(task.description || '');
@@ -326,42 +319,21 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
     };
 
     try {
-      // 1. Primary Update: PATCH /api/tasks/<id>/ updates core model fields safely
       await api.patch(`/tasks/${task.id}/`, payload);
 
-      // 2. Action Logger: Records audit trail and remarks if entered
       if (remarks.trim()) {
         await api.post(`/tasks/${task.id}/action/`, {
           action: 'UPDATE_PROGRESS',
           progress_percentage: Number(progress),
           status: status,
           remarks: remarks.trim()
-        }).catch(() => {}); // Gracefully ignore if action endpoint is busy
+        }).catch(() => {});
       }
 
       onSuccess();
     } catch (err) {
-      console.error('Task update failed:', err.response?.data || err.message);
-      
-      // Fallback: If PATCH failed, try POST to action route
-      try {
-        await api.post(`/tasks/${task.id}/action/`, {
-          action: 'UPDATE_PROGRESS',
-          title,
-          description,
-          due_date: dueDate || null,
-          priority,
-          status,
-          progress_percentage: Number(progress),
-          remarks: remarks || `Updated status to ${status}`
-        });
-        onSuccess();
-      } catch (fallbackErr) {
-        const errorDetail = fallbackErr.response?.data?.detail 
-          || JSON.stringify(fallbackErr.response?.data) 
-          || 'Failed to update task.';
-        alert(`Update failed: ${errorDetail}`);
-      }
+      console.error('Task update failed:', err);
+      alert('Failed to update task.');
     } finally {
       setSubmitting(false);
     }
@@ -373,7 +345,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
         <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
           <div>
             <h3 className="text-base font-bold text-slate-900">Task Management & Rescheduling</h3>
-            <p className="text-xs text-slate-500">Edit task parameters, set priority, deadlines, and statuses</p>
+            <p className="text-xs text-slate-500">Edit parameters, priority, deadlines, and status</p>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
             <X size={18} />
@@ -388,7 +360,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden"
             />
           </div>
 
@@ -398,7 +370,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
               rows="2"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden"
             />
           </div>
 
@@ -408,7 +380,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden"
               >
                 <option value="Low">Low</option>
                 <option value="Medium">Medium</option>
@@ -417,12 +389,12 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Due Date (Deadline)</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Due Date</label>
               <input
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden"
               />
             </div>
           </div>
@@ -437,7 +409,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
                 if (newSt === 'VERIFIED') setProgress(100);
                 if (newSt === 'ACCEPTED' && progress > 0) setProgress(0);
               }}
-              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none font-medium"
+              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
             >
               <option value="ACCEPTED">ACCEPTED (Not Started)</option>
               <option value="IN_PROGRESS">IN_PROGRESS (Underway)</option>
@@ -465,13 +437,13 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Supervisory Remarks (Optional)</label>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Remarks</label>
             <input
               type="text"
               placeholder="e.g., Extended deadline; rescheduled per morning briefing"
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-hidden"
             />
           </div>
 
@@ -488,7 +460,7 @@ function ManagerTaskEditModal({ task, onClose, onSuccess }) {
               disabled={submitting}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-medium transition shadow-xs disabled:opacity-50"
             >
-              {submitting ? 'Saving...' : 'Save & Apply Changes'}
+              {submitting ? 'Saving...' : 'Save & Apply'}
             </button>
           </div>
         </form>

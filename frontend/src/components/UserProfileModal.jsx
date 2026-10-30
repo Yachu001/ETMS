@@ -12,7 +12,8 @@ import {
   CheckCircle2, 
   XCircle, 
   Bell, 
-  BadgeCheck 
+  Layers,
+  Shield
 } from 'lucide-react';
 
 export default function UserProfileModal({ isOpen, onClose, userId }) {
@@ -35,7 +36,7 @@ export default function UserProfileModal({ isOpen, onClose, userId }) {
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
       <div className="bg-white border border-slate-200 rounded-2xl shadow-xl max-w-xl w-full p-6 space-y-5">
         
-        {/* Modal Header */}
+        {/* Header */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <User className="text-blue-600" size={18} />
@@ -70,45 +71,42 @@ export default function UserProfileModal({ isOpen, onClose, userId }) {
               </div>
             </div>
 
-            {/* Business & Department Association Badges */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1.5">
-                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Building2 size={12} className="text-indigo-600" /> Business Association
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {user.businesses && user.businesses.length > 0 ? (
-                    user.businesses.map((b) => (
-                      <span 
-                        key={b.id} 
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
-                          b.name === 'No Business' 
-                            ? 'bg-amber-50 text-amber-700 border-amber-200' 
-                            : 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                        }`}
-                      >
-                        {b.name} ({b.code})
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-slate-400 italic">No Business Assigned</span>
-                  )}
-                </div>
+            {/* Matrix Association Details */}
+            <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-2">
+              <div className="flex items-center gap-1.5 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                <Layers size={13} className="text-indigo-600" /> Matrix Branch Alignment
+              </div>
+              <div className="text-sm font-semibold text-slate-900">
+                {user.matrix_name || 'No Matrix Assigned'}
               </div>
 
-              <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1.5">
-                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Building size={12} className="text-emerald-600" /> Primary Department
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
+                  <span className="font-medium text-slate-700">{user.business_name || 'No Business'}</span>
                 </div>
                 <div>
-                  <span className={`px-2 py-0.5 rounded text-[11px] font-medium border inline-flex items-center gap-1 ${
-                    user.primary_department === 'No Department' 
-                      ? 'bg-amber-50 text-amber-700 border-amber-200' 
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  }`}>
-                    <BadgeCheck size={12} /> {user.primary_department || 'No Department'}
-                  </span>
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
+                  <span className="font-medium text-slate-700">{user.department_name || 'No Department'}</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Reporting Leads */}
+            <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1.5">
+              <div className="flex items-center gap-1.5 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                <Network size={13} className="text-emerald-600" /> 
+                {user.role === 'SUPERVISOR' ? 'Dual Direct Upstream Leads' : 'Direct Reporting Lead'}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-800 text-xs">
+                  {user.manager_name || 'None / Unassigned'}
+                </span>
+                {user.role === 'SUPERVISOR' && (
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Reports to Business Admin & Department Admin governing this matrix branch.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -116,23 +114,16 @@ export default function UserProfileModal({ isOpen, onClose, userId }) {
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
                 <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Mail size={12} /> Corporate Email
+                  <Mail size={12} /> Email Address
                 </div>
                 <div className="text-slate-800 font-medium truncate">{user.email || 'Not provided'}</div>
               </div>
 
               <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
                 <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Phone size={12} /> Phone Number
+                  <Phone size={12} /> Contact Phone
                 </div>
                 <div className="text-slate-800 font-medium">{user.phone || 'Not provided'}</div>
-              </div>
-
-              <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
-                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Network size={12} /> Reporting Lead
-                </div>
-                <div className="text-slate-800 font-medium">{user.primary_manager || 'None / Self'}</div>
               </div>
 
               <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
@@ -143,18 +134,6 @@ export default function UserProfileModal({ isOpen, onClose, userId }) {
                   {user.shift_start_time || '09:00'} - {user.shift_end_time || '18:00'}
                 </div>
               </div>
-            </div>
-
-            {/* Duty & Status Bar */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
-                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
-                  <Bell size={12} /> End-of-Day Reminder
-                </div>
-                <div className="text-slate-700 font-mono">
-                  {user.reminder_enabled ? `${user.reminder_time} (Active)` : 'Disabled'}
-                </div>
-              </div>
 
               <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-1">
                 <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-semibold">
@@ -163,7 +142,7 @@ export default function UserProfileModal({ isOpen, onClose, userId }) {
                 <div>
                   {user.is_active ? (
                     <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                      <CheckCircle2 size={11} /> Active Account
+                      <CheckCircle2 size={11} /> Active
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">

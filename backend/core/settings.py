@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'accounts',
     'tasks',
     'notifications',
+    'django_apscheduler',
 
 ]
 

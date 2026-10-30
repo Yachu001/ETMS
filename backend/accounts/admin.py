@@ -2,10 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
 from django.contrib.auth import get_user_model
-from .models import (
-    Business, Department, BusinessDepartment,
-    UserDepartment, UserReporting, AttendanceRecord, PasswordResetOTP
-)
+from .models import Business, Department, BusinessDepartment, AttendanceRecord, PasswordResetOTP
 
 User = get_user_model()
 
@@ -13,7 +10,7 @@ User = get_user_model()
 class CustomUserCreationForm(UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ('username', 'email', 'full_name', 'role', 'designation')
+        fields = ('username', 'email', 'full_name', 'role', 'designation', 'matrix')
 
 
 class CustomUserChangeForm(UserChangeForm):
@@ -22,28 +19,11 @@ class CustomUserChangeForm(UserChangeForm):
         fields = '__all__'
 
 
-class UserDepartmentInline(admin.TabularInline):
-    model = UserDepartment
-    extra = 1
-
-
-class UserReportingInline(admin.TabularInline):
-    model = UserReporting
-    fk_name = 'employee'
-    extra = 1
-
-
-class BusinessDepartmentInline(admin.TabularInline):
-    model = BusinessDepartment
-    extra = 1
-
-
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'is_active', 'created_at')
     search_fields = ('name', 'code')
     list_filter = ('is_active',)
-    inlines = [BusinessDepartmentInline]
 
 
 @admin.register(Department)
@@ -55,8 +35,9 @@ class DepartmentAdmin(admin.ModelAdmin):
 
 @admin.register(BusinessDepartment)
 class BusinessDepartmentAdmin(admin.ModelAdmin):
-    list_display = ('business', 'department', 'is_active', 'created_at')
+    list_display = ('business', 'department', 'supervisor', 'is_active', 'created_at')
     list_filter = ('business', 'department', 'is_active')
+    search_fields = ('business__name', 'business__code', 'department__name', 'supervisor__username', 'supervisor__full_name')
 
 
 @admin.register(User)
@@ -66,7 +47,10 @@ class CustomUserAdmin(UserAdmin):
 
     fieldsets = UserAdmin.fieldsets + (
         ('Employee Profile Details', {
-            'fields': ('full_name', 'employee_code', 'phone', 'role', 'designation', 'date_of_joining', 'businesses')
+            'fields': (
+                'full_name', 'employee_code', 'phone', 'role', 'designation',
+                'date_of_joining', 'matrix', 'business', 'department', 'reports_to'
+            )
         }),
         ('Shift & Duty Boundaries', {
             'fields': ('shift_start_time', 'shift_end_time', 'reminder_enabled', 'reminder_time')
@@ -78,32 +62,18 @@ class CustomUserAdmin(UserAdmin):
             'classes': ('wide',),
             'fields': (
                 'username', 'email', 'full_name', 'role', 'designation',
-                'password1', 'password2'
+                'matrix', 'password1', 'password2'
             ),
         }),
     )
 
     list_display = (
         'username', 'full_name', 'email', 'role', 'designation',
-        'employee_code', 'date_of_joining', 'is_active', 'is_staff'
+        'matrix', 'business', 'department', 'reports_to', 'is_active'
     )
-    list_filter = ('role', 'is_active', 'is_staff', 'businesses')
+    list_filter = ('role', 'is_active', 'matrix', 'business', 'department')
     search_fields = ('username', 'full_name', 'email', 'employee_code', 'designation')
     ordering = ('username',)
-    filter_horizontal = ('businesses',)
-    inlines = [UserDepartmentInline, UserReportingInline]
-
-
-@admin.register(UserDepartment)
-class UserDepartmentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'department', 'is_primary')
-    list_filter = ('is_primary', 'department')
-
-
-@admin.register(UserReporting)
-class UserReportingAdmin(admin.ModelAdmin):
-    list_display = ('employee', 'manager', 'is_primary')
-    list_filter = ('is_primary',)
 
 
 @admin.register(AttendanceRecord)
