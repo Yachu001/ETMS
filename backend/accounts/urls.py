@@ -16,6 +16,7 @@ from .views import (
     ResetPasswordWithOTPView,
     MySubordinatesListView,
     OrgHierarchyTreeView,
+    SystemAuditLogListView,
 )
 
 router = DefaultRouter()
@@ -38,7 +39,7 @@ urlpatterns = [
     path('user-detail/<int:user_id>/', UserCockpitDetailView.as_view(), name='user-cockpit-detail'),
 
     # Attendance
-    # path('attendance/today/', DailyAttendanceToggleView.as_view(), name='daily-attendance-today'),
+    path('attendance/today/', DailyAttendanceToggleView.as_view(), name='daily-attendance-today'),
 
     # Password Recovery
     path('password-reset/otp/', RequestPasswordResetOTPView.as_view(), name='request_otp'),
@@ -47,6 +48,9 @@ urlpatterns = [
     # Org Tree & Reporting Hierarchy
     path('org/my-subordinates/', MySubordinatesListView.as_view(), name='my-subordinates'),
     path('org/tree/', OrgHierarchyTreeView.as_view(), name='org-tree'),
+
+    # Auditlogs
+    path('audit-logs/', SystemAuditLogListView.as_view(), name='system-audit-logs'),
 
     # Router Endpoints
     path('', include(router.urls)),

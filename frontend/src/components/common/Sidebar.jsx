@@ -1,3 +1,4 @@
+import React from 'react';
 import {
   LayoutDashboard,
   CheckSquare,
@@ -8,7 +9,7 @@ import {
   History,
   UserCog,
   X,
-  MessageSquare
+  MessageSquare,
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -18,12 +19,13 @@ export default function Sidebar({
   onLogout,
   pendingTasksCount = 0,
   isOpen = false,
-  onClose
+  onClose,
 }) {
   if (!currentUser) return null;
 
   const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(currentUser.role);
-  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser.role);
+  // Allowed SUPERVISOR to view and manage their assigned matrix branch
+  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(currentUser.role);
 
   const getCapitalizedDisplayName = () => {
     const raw = (currentUser.full_name && currentUser.full_name.trim().length > 0)
@@ -73,7 +75,7 @@ export default function Sidebar({
           {/* Close button for mobile drawer */}
           <button
             onClick={onClose}
-            className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+            className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
           >
             <X size={18} />
           </button>
@@ -94,7 +96,7 @@ export default function Sidebar({
         <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-1 text-xs font-medium">
           <button
             onClick={() => handleNavClick('landing')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
               activeTab === 'landing'
                 ? 'bg-blue-600 text-white font-semibold'
                 : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -105,7 +107,7 @@ export default function Sidebar({
 
           <button
             onClick={() => handleNavClick('tasks')}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition ${
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition cursor-pointer ${
               activeTab === 'tasks'
                 ? 'bg-blue-600 text-white font-semibold'
                 : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -125,7 +127,7 @@ export default function Sidebar({
           {isPrivileged && (
             <button
               onClick={() => handleNavClick('users')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
                 activeTab === 'users'
                   ? 'bg-blue-600 text-white font-semibold'
                   : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -139,7 +141,7 @@ export default function Sidebar({
           {isPrivileged && (
             <button
               onClick={() => handleNavClick('tree')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
                 activeTab === 'tree'
                   ? 'bg-blue-600 text-white font-semibold'
                   : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -153,7 +155,7 @@ export default function Sidebar({
           {canManageMatrix && (
             <button
               onClick={() => handleNavClick('matrix')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
                 activeTab === 'matrix'
                   ? 'bg-blue-600 text-white font-semibold'
                   : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -162,23 +164,25 @@ export default function Sidebar({
               <Building2 size={16} /> Business & Matrix
             </button>
           )}
+
+          {/* Reason Reviews Hub */}
           {isPrivileged && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('reviews')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
-              activeTab === 'reviews'
-                ? 'bg-blue-600 text-white font-semibold'
-                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <MessageSquare size={16} /> Reason Forms Hub
-          </button>
-        )}
+            <button
+              type="button"
+              onClick={() => handleNavClick('reviews')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
+                activeTab === 'reviews'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <MessageSquare size={16} /> Reason Forms Hub
+            </button>
+          )}
 
           <button
             onClick={() => handleNavClick('profile')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
               activeTab === 'profile'
                 ? 'bg-blue-600 text-white font-semibold'
                 : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -189,7 +193,7 @@ export default function Sidebar({
 
           <button
             onClick={() => handleNavClick('audit')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition cursor-pointer ${
               activeTab === 'audit'
                 ? 'bg-blue-600 text-white font-semibold'
                 : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -199,7 +203,7 @@ export default function Sidebar({
           </button>
         </nav>
 
-        {/* Sidebar Footer (Sign Out Only - Create User removed) */}
+        {/* Sidebar Footer */}
         <div className="p-4 border-t border-slate-800 shrink-0">
           <button
             onClick={onLogout}

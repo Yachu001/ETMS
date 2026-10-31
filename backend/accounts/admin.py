@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
 from django.contrib.auth import get_user_model
-from .models import Business, Department, BusinessDepartment, AttendanceRecord, PasswordResetOTP
+from .models import Business, Department, BusinessDepartment, AttendanceRecord, PasswordResetOTP, SystemAuditLog
 
 User = get_user_model()
 
@@ -86,3 +86,16 @@ class AttendanceRecordAdmin(admin.ModelAdmin):
 class PasswordResetOTPAdmin(admin.ModelAdmin):
     list_display = ('user', 'otp_code', 'is_used', 'expires_at', 'created_at')
     list_filter = ('is_used',)
+
+@admin.register(SystemAuditLog)
+class SystemAuditLogAdmin(admin.ModelAdmin):
+    list_display = ('timestamp', 'module', 'action_type', 'actor', 'target_user', 'entity_name')
+    list_filter = ('module', 'action_type', 'timestamp')
+    search_fields = ('action_type', 'remarks', 'actor__username', 'target_user__username', 'entity_name')
+    readonly_fields = [f.name for f in SystemAuditLog._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

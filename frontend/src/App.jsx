@@ -6,8 +6,7 @@ import Login from './pages/Login';
 
 // Layout & Navigation Components
 import TopNavbar from './components/common/TopNavbar';
-import Sidebar from './components/common/Sidebar'
-
+import Sidebar from './components/common/Sidebar';
 
 // Feature Views & Components
 import TaskTable from './components/TaskTable';
@@ -83,11 +82,10 @@ export default function App() {
 
   const fetchAttendance = async () => {
     try {
-      // Corrected API URL prefix: /auth/attendance/daily/
-      const res = await api.get('/auth/attendance/daily/');
+      const res = await api.get('/auth/attendance/today/');
       setIsOnDuty(Boolean(res.data.is_present));
     } catch (err) {
-      // Fallback
+      setIsOnDuty(false);
     }
   };
 
@@ -135,7 +133,9 @@ export default function App() {
 
   const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(currentUser.role);
   const isAdminTier = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
-  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser.role);
+  
+  // Mandatory update: Allowed SUPERVISOR to view and manage their assigned matrix members
+  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(currentUser.role);
 
   // Summary Metrics for Landing Page
   const pendingTasks = tasks.filter((t) => t.status === 'REQUEST_PENDING');
@@ -377,6 +377,7 @@ export default function App() {
           {activeTab === 'matrix' && canManageMatrix && (
             <div className="space-y-4">
               <BusinessDeptMatrixView
+                currentUser={currentUser}
                 userRole={currentUser.role}
                 onClose={() => setActiveTab('landing')}
               />
@@ -398,9 +399,9 @@ export default function App() {
           {/* TAB 6: HIERARCHY TREE */}
           {activeTab === 'tree' && isPrivileged && (
             <OrgTreeViewer
-            currentUser={currentUser}
-            onProfileUpdated={(updated) => setProfileData(updated)}
-          />
+              currentUser={currentUser}
+              onProfileUpdated={(updated) => setProfileData(updated)}
+            />
           )}
 
           {/* TAB 7: PERSONAL DETAILS */}

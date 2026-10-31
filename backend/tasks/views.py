@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 
 from .models import Task, DailyWorkSelection, TaskActivityLog, TaskReasonSubmission
+from accounts.audit_service import log_system_event
 from notifications.models import Notification
 from .serializers import (
     TaskSerializer,
@@ -134,6 +135,24 @@ class TaskListCreateView(generics.ListCreateAPIView):
                 data={'task_id': task.id, 'priority': task.priority}
             )
 
+        # UNIFIED SYSTEM AUDIT LOG: Task Created
+        log_system_event(
+            actor=user,
+            action_type='TASK_CREATED',
+            module='TASK',
+            target_user=task.assigned_to,
+            entity_id=task.id,
+            entity_name=task.title,
+            new_values={
+                'priority': task.priority,
+                'status': task.status,
+                'due_date': str(task.due_date) if task.due_date else None,
+                'assigned_to': task.assigned_to.username if task.assigned_to else None,
+            },
+            remarks=f"Created task '{task.title}' for {task.assigned_to.username if task.assigned_to else 'unassigned'}",
+            request=self.request
+        )
+
 
 # ==========================================
 # 2. TASK DETAIL VIEW
@@ -202,6 +221,21 @@ class TaskActionView(APIView):
                 new_progress=0,
                 remarks="Task assignment accepted by employee."
             )
+
+            # UNIFIED SYSTEM AUDIT LOG: Task Accepted
+            log_system_event(
+                actor=actor,
+                action_type='TASK_ACCEPTED',
+                module='TASK',
+                target_user=task.assigned_to,
+                entity_id=task.id,
+                entity_name=task.title,
+                old_values={'status': old_status, 'progress': 0},
+                new_values={'status': 'ACCEPTED', 'progress': 0},
+                remarks=f"Task assignment accepted for '{task.title}'",
+                request=request
+            )
+
             return Response(TaskSerializer(task, context={'request': request}).data)
 
         # --- 2. REJECT TASK ---
@@ -267,6 +301,21 @@ class TaskActionView(APIView):
                 new_progress=task.progress_percentage,
                 remarks=f"Rejected: [{reason_display}] {rejection_remarks}"
             )
+
+            # UNIFIED SYSTEM AUDIT LOG: Task Rejected
+            log_system_event(
+                actor=actor,
+                action_type='TASK_REJECTED',
+                module='TASK',
+                target_user=task.created_by,
+                entity_id=task.id,
+                entity_name=task.title,
+                old_values={'status': old_status},
+                new_values={'status': 'REJECTED', 'reason': rejection_reason, 'remarks': rejection_remarks},
+                remarks=f"Rejected task '{task.title}': [{reason_display}] {rejection_remarks}",
+                request=request
+            )
+
             return Response(TaskSerializer(task, context={'request': request}).data)
 
         # --- 3. UPDATE PROGRESS / STATUS / METADATA ---
@@ -313,6 +362,20 @@ class TaskActionView(APIView):
             old_progress=old_progress,
             new_progress=new_progress,
             remarks=remarks or f"Progress updated to {new_progress}% ({new_status}) by {actor.username}"
+        )
+
+        # UNIFIED SYSTEM AUDIT LOG: Task Action / Progress Update
+        log_system_event(
+            actor=actor,
+            action_type=f"TASK_{action}",
+            module='TASK',
+            target_user=task.assigned_to,
+            entity_id=task.id,
+            entity_name=task.title,
+            old_values={'status': old_status, 'progress': old_progress},
+            new_values={'status': new_status, 'progress': new_progress},
+            remarks=remarks or f"Updated task '{task.title}' to {new_progress}% ({new_status})",
+            request=request
         )
 
         return Response(TaskSerializer(task, context={'request': request}).data)
@@ -514,6 +577,19 @@ class SubmitTaskDelayReasonView(APIView):
             remarks=f"Overdue delay reason submitted: [{reason_category}] {explanation}. Expected: {parsed_date}"
         )
 
+        # UNIFIED SYSTEM AUDIT LOG: Overdue Delay Submitted
+        log_system_event(
+            actor=user,
+            action_type='OVERDUE_DELAY_SUBMITTED',
+            module='FORM',
+            target_user=task.created_by,
+            entity_id=task.id,
+            entity_name=task.title,
+            new_values={'reason_category': reason_category, 'expected_due_date': str(parsed_date), 'explanation': explanation},
+            remarks=f"Overdue delay reason submitted for '{task.title}'. Expected completion: {parsed_date}",
+            request=request
+        )
+
         return Response({
             'status': 'success',
             'detail': 'Overdue delay report submitted for authority review.',
@@ -634,6 +710,19 @@ class AuthorityReasonReviewView(APIView):
                 remarks=f"Due date rescheduled to {parsed_due_date} by {manager.username}. Progress preserved ({task.progress_percentage}%). Remarks: {reviewer_remarks}"
             )
 
+            # UNIFIED SYSTEM AUDIT LOG: Reschedule Action
+            log_system_event(
+                actor=manager,
+                action_type='REASON_RESCHEDULED',
+                module='FORM',
+                target_user=task.assigned_to,
+                entity_id=task.id,
+                entity_name=task.title,
+                new_values={'due_date': str(parsed_due_date), 'reviewer_remarks': reviewer_remarks},
+                remarks=f"Rescheduled '{task.title}' to {parsed_due_date}",
+                request=request
+            )
+
         elif action_type == 'CANCEL':
             old_status = task.status
             task.status = 'CANCELLED'
@@ -666,12 +755,39 @@ class AuthorityReasonReviewView(APIView):
                 remarks=f"Task cancelled by {manager.username} following overdue delay review. Remarks: {reviewer_remarks}"
             )
 
+            # UNIFIED SYSTEM AUDIT LOG: Task Cancelled via Review
+            log_system_event(
+                actor=manager,
+                action_type='REASON_CANCELLED',
+                module='FORM',
+                target_user=task.assigned_to,
+                entity_id=task.id,
+                entity_name=task.title,
+                old_values={'status': old_status},
+                new_values={'status': 'CANCELLED', 'reviewer_remarks': reviewer_remarks},
+                remarks=f"Cancelled task '{task.title}' following review",
+                request=request
+            )
+
         elif action_type in ['VERIFY', 'ACKNOWLEDGE']:
             submission.status = 'VERIFIED'
             submission.reviewed_by = manager
             submission.reviewer_remarks = reviewer_remarks
             submission.actioned_at = timezone.now()
             submission.save()
+
+            # UNIFIED SYSTEM AUDIT LOG: Reason Verified
+            log_system_event(
+                actor=manager,
+                action_type='REASON_VERIFIED',
+                module='FORM',
+                target_user=submission.submitted_by,
+                entity_id=task.id,
+                entity_name=task.title,
+                new_values={'status': 'VERIFIED', 'reviewer_remarks': reviewer_remarks},
+                remarks=f"Verified/Acknowledged reason submission #{submission.id} for task '{task.title}'",
+                request=request
+            )
 
         return Response({'status': 'success', 'message': f'Submission marked as {submission.status}.'})
 
@@ -943,11 +1059,25 @@ class SubmitCommitmentNoActionReasonView(APIView):
             remarks=f"Daily commit no-action explanation submitted: [{reason_category}] {explanation}"
         )
 
+        # UNIFIED SYSTEM AUDIT LOG: Committed Task No-Action Submitted
+        log_system_event(
+            actor=user,
+            action_type='NO_ACTION_TODAY_SUBMITTED',
+            module='FORM',
+            target_user=task.created_by,
+            entity_id=task.id,
+            entity_name=task.title,
+            new_values={'reason_category': reason_category, 'explanation': explanation},
+            remarks=f"Submitted inaction explanation for '{task.title}': [{reason_category}] {explanation}",
+            request=request
+        )
+
         return Response({
             'status': 'success',
             'detail': 'Daily no-action explanation submitted.',
             'submission_id': submission.id
         }, status=status.HTTP_201_CREATED)
+
 
 class IdleMonitoringStatusView(APIView):
     """

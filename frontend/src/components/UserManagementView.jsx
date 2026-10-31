@@ -317,7 +317,7 @@ export default function UserManagementView({ currentUser }) {
 // MATRIX-FIRST USER CREATION MODAL
 // -------------------------------------------------------------
 function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSuccess }) {
-  const { matrices = [] } = formOptions;
+  const { matrices = [], businesses = [], departments = [] } = formOptions;
 
   const [formData, setFormData] = useState({
     username: '',
@@ -327,6 +327,8 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
     role: 'EMPLOYEE',
     designation: '',
     matrix_id: '',
+    business_id: '',
+    department_id: '',
     shift_start_time: '09:00:00',
     shift_end_time: '18:00:00',
     date_of_joining: new Date().toISOString().split('T')[0],
@@ -361,7 +363,12 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
 
     const mId = parseInt(matrixIdStr, 10);
     const found = matrices.find(m => m.id === mId);
-    setFormData(prev => ({ ...prev, matrix_id: mId }));
+    setFormData(prev => ({ 
+      ...prev, 
+      matrix_id: mId,
+      business_id: '',
+      department_id: ''
+    }));
     setSelectedMatrixDetails(found || null);
   };
 
@@ -384,12 +391,10 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
     setError(null);
 
     const payload = { ...formData };
-    if (!payload.matrix_id) {
-      delete payload.matrix_id;
-    }
-    if (!payload.password) {
-      delete payload.password;
-    }
+    if (!payload.matrix_id) delete payload.matrix_id;
+    if (!payload.business_id) delete payload.business_id;
+    if (!payload.department_id) delete payload.department_id;
+    if (!payload.password) delete payload.password;
 
     try {
       await api.post('/auth/employees/manage/', payload);
@@ -401,6 +406,8 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
       setSubmitting(false);
     }
   };
+
+  const isUpperTierRole = ['ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(formData.role);
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
@@ -497,47 +504,82 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
               onChange={(e) => handleMatrixChange(e.target.value)}
               className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden disabled:bg-slate-100 font-medium"
             >
-              <option value="none">-- No Matrix (Unassigned Pool) --</option>
+              <option value="none">-- No Matrix ({isUpperTierRole ? 'Select Direct Org Entities Below' : 'Unassigned Pool'}) --</option>
               {matrices.map((m) => (
-                <option key={m.id} value={m.id}>{m.title}</option>
+                <option key={m.id} value={m.id}>{m.title || `${m.name} [${m.code}]`}</option>
               ))}
             </select>
           </div>
 
+          {/* Conditional Upper-Tier Direct Entity Selection (When Matrix is not set) */}
+          {!formData.matrix_id && isUpperTierRole && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Direct Business</label>
+                <select
+                  value={formData.business_id || ''}
+                  onChange={(e) => setFormData({ ...formData, business_id: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2 bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- No Direct Business --</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Direct Department</label>
+                <select
+                  value={formData.department_id || ''}
+                  onChange={(e) => setFormData({ ...formData, department_id: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2 bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- No Direct Department --</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Read-Only Matrix Auto-Derived Badges */}
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
-            <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-              <Layers size={13} className="text-indigo-600" />
-              Auto-Assigned Matrix Attributes
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white p-2 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
-                </span>
+          {formData.matrix_id && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                <Layers size={13} className="text-indigo-600" />
+                Auto-Assigned Matrix Attributes
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
+                  </span>
+                </div>
+
+                <div className="bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                  </span>
+                </div>
               </div>
 
               <div className="bg-white p-2 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">
+                  {formData.role === 'SUPERVISOR' ? 'Matrix Incharge Designation' : 'Direct Reporting Manager'}
+                </span>
+                <span className="font-semibold text-indigo-700">
+                  {formData.role === 'SUPERVISOR'
+                    ? 'Self will be registered as Incharge of this Matrix'
+                    : (selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'None / Unassigned')}
                 </span>
               </div>
             </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 uppercase block font-medium">
-                {formData.role === 'SUPERVISOR' ? 'Matrix Incharge Designation' : 'Direct Reporting Manager'}
-              </span>
-              <span className="font-semibold text-indigo-700">
-                {formData.role === 'SUPERVISOR'
-                  ? 'Self will be registered as Incharge of this Matrix'
-                  : (selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'None / Unassigned')}
-              </span>
-            </div>
-          </div>
+          )}
 
           {/* Shift Schedule */}
           <div className="grid grid-cols-2 gap-3">
@@ -598,7 +640,7 @@ function MatrixCreateUserModal({ isOpen, onClose, currentUser, formOptions, onSu
 // MATRIX-FIRST USER EDIT MODAL
 // -------------------------------------------------------------
 function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSuccess }) {
-  const { matrices = [] } = formOptions;
+  const { matrices = [], businesses = [], departments = [] } = formOptions;
 
   const [formData, setFormData] = useState({
     full_name: user.full_name || '',
@@ -608,6 +650,8 @@ function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSucces
     designation: user.designation || '',
     role: user.role,
     matrix_id: user.matrix_id || '',
+    business_id: user.business_id || '',
+    department_id: user.department_id || '',
     shift_start_time: user.shift_start_time || '09:00:00',
     shift_end_time: user.shift_end_time || '18:00:00',
     date_of_joining: user.date_of_joining || ''
@@ -620,6 +664,7 @@ function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSucces
 
   const canEditRoles = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
   const isSupervisor = currentUser.role === 'SUPERVISOR';
+  const isUpperTierRole = ['ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(formData.role);
 
   const handleMatrixChange = (matrixIdStr) => {
     if (!matrixIdStr || matrixIdStr === 'none') {
@@ -630,7 +675,12 @@ function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSucces
 
     const mId = parseInt(matrixIdStr, 10);
     const found = matrices.find(m => m.id === mId);
-    setFormData(prev => ({ ...prev, matrix_id: mId }));
+    setFormData(prev => ({ 
+      ...prev, 
+      matrix_id: mId,
+      business_id: '',
+      department_id: ''
+    }));
     setSelectedMatrixDetails(found || null);
   };
 
@@ -638,7 +688,12 @@ function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSucces
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.patch(`/auth/employees/manage/${user.id}/`, formData);
+      const payload = { ...formData };
+      if (payload.matrix_id === 'none') payload.matrix_id = null;
+      if (!payload.business_id) payload.business_id = null;
+      if (!payload.department_id) payload.department_id = null;
+
+      await api.patch(`/auth/employees/manage/${user.id}/`, payload);
       onSuccess();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to update employee details.');
@@ -740,43 +795,78 @@ function MatrixEditUserModal({ user, onClose, currentUser, formOptions, onSucces
               onChange={(e) => handleMatrixChange(e.target.value)}
               className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 outline-hidden disabled:bg-slate-100 font-medium"
             >
-              <option value="none">-- No Matrix (Unassigned Pool) --</option>
+              <option value="none">-- No Matrix ({isUpperTierRole ? 'Select Direct Org Entities Below' : 'Unassigned Pool'}) --</option>
               {matrices.map((m) => (
-                <option key={m.id} value={m.id}>{m.title}</option>
+                <option key={m.id} value={m.id}>{m.title || `${m.name} [${m.code}]`}</option>
               ))}
             </select>
           </div>
 
+          {/* Conditional Upper-Tier Direct Entity Selection (When Matrix is not set) */}
+          {(formData.matrix_id === 'none' || !formData.matrix_id) && isUpperTierRole && canEditRoles && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Direct Business</label>
+                <select
+                  value={formData.business_id || ''}
+                  onChange={(e) => setFormData({ ...formData, business_id: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2 bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- No Direct Business --</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Direct Department</label>
+                <select
+                  value={formData.department_id || ''}
+                  onChange={(e) => setFormData({ ...formData, department_id: e.target.value ? parseInt(e.target.value, 10) : '' })}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2 bg-white outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- No Direct Department --</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Auto-derived Matrix Badges */}
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
-            <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-              <Layers size={13} className="text-indigo-600" />
-              Derived Relationships
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white p-2 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
-                </span>
+          {formData.matrix_id && formData.matrix_id !== 'none' && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                <Layers size={13} className="text-indigo-600" />
+                Derived Relationships
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Business</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMatrixDetails ? selectedMatrixDetails.business_name : 'No Business'}
+                  </span>
+                </div>
+
+                <div className="bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                  </span>
+                </div>
               </div>
 
               <div className="bg-white p-2 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase block font-medium">Department</span>
-                <span className="font-semibold text-slate-800">
-                  {selectedMatrixDetails ? selectedMatrixDetails.department_name : 'No Department'}
+                <span className="text-[10px] text-slate-400 uppercase block font-medium">Direct Manager</span>
+                <span className="font-semibold text-indigo-700">
+                  {selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'Unassigned Lead'}
                 </span>
               </div>
             </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-400 uppercase block font-medium">Direct Manager</span>
-              <span className="font-semibold text-indigo-700">
-                {selectedMatrixDetails ? selectedMatrixDetails.supervisor_name : 'Unassigned Lead'}
-              </span>
-            </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

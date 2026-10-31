@@ -2,6 +2,7 @@
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.db.models import Q
 
 User = get_user_model()
 
@@ -10,6 +11,7 @@ def get_subordinate_ids(manager_user, include_self=False):
     """
     Recursively retrieves all downstream subordinate user IDs
     reporting directly or indirectly to manager_user.
+    Also handles Supervisors in charge of matrix branches.
     """
     subordinate_ids = set()
     if include_self:
@@ -19,7 +21,7 @@ def get_subordinate_ids(manager_user, include_self=False):
 
     while current_level_managers:
         direct_reports = list(
-            User.objects.filter(reports_to_id__in=current_level_managers)
+            User.objects.filter(reports_to_id__in=current_level_managers, is_active=True)
             .values_list('id', flat=True)
         )
         new_subordinates = [uid for uid in direct_reports if uid not in subordinate_ids]
@@ -27,6 +29,15 @@ def get_subordinate_ids(manager_user, include_self=False):
             break
         subordinate_ids.update(new_subordinates)
         current_level_managers = new_subordinates
+
+    # If manager is a Supervisor, add members of their appointed matrices
+    if manager_user.role == 'SUPERVISOR':
+        matrix_member_ids = User.objects.filter(
+            matrix__supervisor=manager_user,
+            role='EMPLOYEE',
+            is_active=True
+        ).values_list('id', flat=True)
+        subordinate_ids.update(matrix_member_ids)
 
     return list(subordinate_ids)
 
@@ -42,9 +53,9 @@ def build_hierarchy_tree(user):
 
     def get_children(parent_user):
         direct_reports = User.objects.filter(
-            reports_to=parent_user,
+            Q(reports_to=parent_user) | Q(matrix__supervisor=parent_user, role='EMPLOYEE'),
             is_active=True
-        ).select_related('department', 'business', 'matrix')
+        ).distinct().select_related('department', 'business', 'matrix')
 
         children_list = []
         for emp in direct_reports:
@@ -53,7 +64,6 @@ def build_hierarchy_tree(user):
 
             visited_ids.add(emp.id)
 
-            # Check today's attendance record
             attendance = emp.attendance_records.filter(date=today).first()
             is_present = attendance.is_present if attendance else False
 
@@ -73,18 +83,19 @@ def build_hierarchy_tree(user):
                 'department': dept_name,
                 'primary_department': dept_name,
                 'matrix': str(emp.matrix) if emp.matrix else None,
+                'dual_reporting_leads': emp.get_dual_reporting_leads(),
                 'subordinates': get_children(emp)
             })
 
         return children_list
 
-    # 1. Fetch direct and indirect descendants
     subordinates = get_children(user)
 
-    # 2. Super Admin Guarantee: If any active user was not attached in the chain,
-    # include them under the Super Admin tree so no user is left out
+    # Super Admin root guarantee: include any orphan active users
     if user.role == 'SUPER_ADMIN':
-        all_active_users = User.objects.filter(is_active=True).exclude(id=user.id).select_related('department', 'business', 'matrix')
+        all_active_users = User.objects.filter(is_active=True).exclude(id=user.id).select_related(
+            'department', 'business', 'matrix'
+        )
         for orphan in all_active_users:
             if orphan.id not in visited_ids:
                 visited_ids.add(orphan.id)
@@ -107,6 +118,7 @@ def build_hierarchy_tree(user):
                     'department': dept_name,
                     'primary_department': dept_name,
                     'matrix': str(orphan.matrix) if orphan.matrix else None,
+                    'dual_reporting_leads': orphan.get_dual_reporting_leads(),
                     'subordinates': get_children(orphan)
                 })
 
@@ -128,6 +140,7 @@ def build_hierarchy_tree(user):
         'department': root_dept,
         'primary_department': root_dept,
         'matrix': str(user.matrix) if user.matrix else None,
+        'dual_reporting_leads': user.get_dual_reporting_leads(),
         'subordinates': subordinates
     }
 
@@ -135,10 +148,7 @@ def build_hierarchy_tree(user):
 def get_user_today_active_committed_count(user):
     """
     Returns the count of active, incomplete tasks in the user's Today's Commitments.
-    Tasks that are 100%, AWAITING_VERIFICATION, VERIFIED, REJECTED, or CANCELLED
-    do NOT count as ongoing active work.
     """
-    # Lazy import to prevent circular dependency
     from tasks.models import DailyWorkSelection
 
     today = timezone.localtime(timezone.now()).date()
@@ -154,7 +164,7 @@ def is_user_idle(user):
     """
     Evaluates if an employee is currently idle:
     - Must be marked present / on-duty today
-    - Has 0 active incomplete tasks in Today's Commitments (DailyWorkSelection)
+    - Has 0 active incomplete tasks in Today's Commitments
     """
     from accounts.models import AttendanceRecord
 
@@ -162,9 +172,7 @@ def is_user_idle(user):
     attendance = AttendanceRecord.objects.filter(user=user, date=today).first()
     is_present = attendance.is_present if attendance else False
 
-    # Off-duty or disabled users are not flagged as idle
     if not user.is_active or not is_present:
         return False
 
-    active_committed_count = get_user_today_active_committed_count(user)
-    return active_committed_count == 0
+    return get_user_today_active_committed_count(user) == 0
