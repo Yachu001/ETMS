@@ -2,9 +2,11 @@
 
 from datetime import time
 from django.utils import timezone
+from django.conf import settings
+from django.core.mail import send_mail
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -33,6 +35,7 @@ from .serializers import (
     BusinessDepartmentSerializer,
     UserProfileSerializer,
     UserCreateSerializer,
+    UserUpdateSerializer,
     SubordinateUserSerializer,
     CustomTokenObtainPairSerializer,
     RequestOTPSerializer,
@@ -50,6 +53,16 @@ User = get_user_model()
 
 ACTIVE_WORK_STATUSES = ['ACCEPTED', 'IN_PROGRESS']
 ACTIVE_TASK_STATUSES = ['REQUEST_PENDING', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_VERIFICATION']
+
+# Role Tier hierarchy weight for comparison (lower number = higher tier)
+ROLE_HIERARCHY_RANK = {
+    'SUPER_ADMIN': 1,
+    'ADMIN': 2,
+    'BUSINESS_ADMIN': 3,
+    'DEPT_HEAD': 3,
+    'SUPERVISOR': 4,
+    'EMPLOYEE': 5,
+}
 
 
 # ==========================================
@@ -108,6 +121,11 @@ class UserCreateView(generics.CreateAPIView):
     serializer_class = UserCreateSerializer
     permission_classes = [IsSupervisorOrAdmin]
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
 
 # ==========================================
 # 2. BUSINESS MANAGEMENT VIEWSET
@@ -132,11 +150,21 @@ class BusinessViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='candidate-incharges')
     def candidate_incharges(self, request):
-        """Returns users eligible to lead a Business (BUSINESS_ADMIN, ADMIN, SUPER_ADMIN)."""
+        biz_id = request.query_params.get('business_id')
+
+        busy_admins = Business.objects.filter(is_active=True, incharge__isnull=False)
+        if biz_id:
+            busy_admins = busy_admins.exclude(id=biz_id)
+        busy_admin_ids = busy_admins.values_list('incharge_id', flat=True)
+
         candidates = User.objects.filter(
             role__in=['BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN'],
             is_active=True
+        ).exclude(
+            role='BUSINESS_ADMIN',
+            id__in=busy_admin_ids
         ).order_by('full_name', 'username')
+
         return Response([
             {
                 'id': u.id,
@@ -149,46 +177,34 @@ class BusinessViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can create new businesses.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can create new businesses.'}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        incharge_user = serializer.validated_data.get('incharge') or request.user
+        with transaction.atomic():
+            biz = serializer.save()
 
-        if incharge_user and incharge_user.role not in ['BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN']:
-            return Response(
-                {'detail': f"Cannot assign {incharge_user.role} as Business Incharge. Must be Business Admin or higher."},
-                status=status.HTTP_400_BAD_REQUEST
+            log_system_event(
+                actor=request.user,
+                action_type='BUSINESS_CREATED',
+                module='ORGANIZATION',
+                entity_id=biz.id,
+                entity_name=biz.name,
+                new_values={
+                    'name': biz.name,
+                    'code': biz.code,
+                    'incharge': biz.incharge.username if biz.incharge else None
+                },
+                remarks=f"Created business {biz.name} ({biz.code})",
+                request=request
             )
-
-        biz = serializer.save(incharge=incharge_user, created_by=request.user)
-
-        # Bi-directional sync: Update the user's business pointer
-        if incharge_user:
-            incharge_user.business = biz
-            incharge_user.save(update_fields=['business'])
-
-        log_system_event(
-            actor=request.user,
-            action_type='BUSINESS_CREATED',
-            module='ORGANIZATION',
-            entity_id=biz.id,
-            entity_name=biz.name,
-            new_values={
-                'name': biz.name,
-                'code': biz.code,
-                'incharge': incharge_user.username if incharge_user else None
-            },
-            remarks=f"Created business {biz.name} ({biz.code}) with incharge {incharge_user.username}",
-            request=request
-        )
 
         return Response(BusinessSerializer(biz).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can edit business details.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can edit business details.'}, status=status.HTTP_403_FORBIDDEN)
 
         instance = self.get_object()
         old_data = {
@@ -198,51 +214,42 @@ class BusinessViewSet(viewsets.ModelViewSet):
             'incharge': instance.incharge.username if instance.incharge else None
         }
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        data = request.data.copy()
+        data.pop('code', None)
+
+        serializer = self.get_serializer(instance, data=data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        if 'incharge' in serializer.validated_data:
-            new_incharge = serializer.validated_data.get('incharge')
-            if new_incharge:
-                if new_incharge.role not in ['BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN']:
-                    return Response(
-                        {'detail': f"Cannot assign {new_incharge.role} as Business Incharge. Must be Business Admin or higher."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                # Bi-directional sync
-                new_incharge.business = instance
-                new_incharge.save(update_fields=['business'])
+        with transaction.atomic():
+            updated_biz = serializer.save()
 
-        updated_biz = serializer.save()
+            new_data = {
+                'name': updated_biz.name,
+                'code': updated_biz.code,
+                'description': updated_biz.description,
+                'incharge': updated_biz.incharge.username if updated_biz.incharge else None
+            }
 
-        new_data = {
-            'name': updated_biz.name,
-            'code': updated_biz.code,
-            'description': updated_biz.description,
-            'incharge': updated_biz.incharge.username if updated_biz.incharge else None
-        }
-
-        log_system_event(
-            actor=request.user,
-            action_type='BUSINESS_UPDATED',
-            module='ORGANIZATION',
-            entity_id=updated_biz.id,
-            entity_name=updated_biz.name,
-            old_values=old_data,
-            new_values=new_data,
-            remarks=f"Updated business {updated_biz.name} ({updated_biz.code})",
-            request=request
-        )
+            log_system_event(
+                actor=request.user,
+                action_type='BUSINESS_UPDATED',
+                module='ORGANIZATION',
+                entity_id=updated_biz.id,
+                entity_name=updated_biz.name,
+                old_values=old_data,
+                new_values=new_data,
+                remarks=f"Updated business {updated_biz.name} ({updated_biz.code})",
+                request=request
+            )
 
         return Response(BusinessSerializer(updated_biz).data)
 
     def destroy(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can delete businesses.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can delete businesses.'}, status=status.HTTP_403_FORBIDDEN)
         
         instance = self.get_object()
 
-        # Strict Deletion Guards: Must have 0 active users and 0 active matrix branches
         active_users_count = instance.business_users.filter(is_active=True).count()
         if active_users_count > 0:
             return Response(
@@ -279,7 +286,6 @@ class BusinessViewSet(viewsets.ModelViewSet):
 
         business = self.get_object()
         
-        # Strict Disable Guards: Cannot disable if active users or active matrix branches exist
         if business.is_active:
             active_users_count = business.business_users.filter(is_active=True).count()
             if active_users_count > 0:
@@ -342,11 +348,21 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='candidate-incharges')
     def candidate_incharges(self, request):
-        """Returns users eligible to lead a Department (DEPT_HEAD, ADMIN, SUPER_ADMIN)."""
+        dept_id = request.query_params.get('department_id')
+
+        busy_heads = Department.objects.filter(is_active=True, incharge__isnull=False)
+        if dept_id:
+            busy_heads = busy_heads.exclude(id=dept_id)
+        busy_head_ids = busy_heads.values_list('incharge_id', flat=True)
+
         candidates = User.objects.filter(
             role__in=['DEPT_HEAD', 'ADMIN', 'SUPER_ADMIN'],
             is_active=True
+        ).exclude(
+            role='DEPT_HEAD',
+            id__in=busy_head_ids
         ).order_by('full_name', 'username')
+
         return Response([
             {
                 'id': u.id,
@@ -359,46 +375,34 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can create departments.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can create departments.'}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        incharge_user = serializer.validated_data.get('incharge') or request.user
+        with transaction.atomic():
+            dept = serializer.save()
 
-        if incharge_user and incharge_user.role not in ['DEPT_HEAD', 'ADMIN', 'SUPER_ADMIN']:
-            return Response(
-                {'detail': f"Cannot assign {incharge_user.role} as Department Incharge. Must be Department Admin or higher."},
-                status=status.HTTP_400_BAD_REQUEST
+            log_system_event(
+                actor=request.user,
+                action_type='DEPARTMENT_CREATED',
+                module='ORGANIZATION',
+                entity_id=dept.id,
+                entity_name=dept.name,
+                new_values={
+                    'name': dept.name,
+                    'code': dept.code,
+                    'incharge': dept.incharge.username if dept.incharge else None
+                },
+                remarks=f"Created department {dept.name} ({dept.code})",
+                request=request
             )
-
-        dept = serializer.save(incharge=incharge_user, created_by=request.user)
-
-        # Bi-directional sync: Update the user's department pointer
-        if incharge_user:
-            incharge_user.department = dept
-            incharge_user.save(update_fields=['department'])
-
-        log_system_event(
-            actor=request.user,
-            action_type='DEPARTMENT_CREATED',
-            module='ORGANIZATION',
-            entity_id=dept.id,
-            entity_name=dept.name,
-            new_values={
-                'name': dept.name,
-                'code': dept.code,
-                'incharge': incharge_user.username if incharge_user else None
-            },
-            remarks=f"Created department {dept.name} ({dept.code}) with incharge {incharge_user.username}",
-            request=request
-        )
 
         return Response(DepartmentSerializer(dept).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can edit department details.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can edit department details.'}, status=status.HTTP_403_FORBIDDEN)
 
         instance = self.get_object()
         old_data = {
@@ -408,51 +412,42 @@ class DepartmentViewSet(viewsets.ModelViewSet):
             'incharge': instance.incharge.username if instance.incharge else None
         }
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        data = request.data.copy()
+        data.pop('code', None)
+
+        serializer = self.get_serializer(instance, data=data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        if 'incharge' in serializer.validated_data:
-            new_incharge = serializer.validated_data.get('incharge')
-            if new_incharge:
-                if new_incharge.role not in ['DEPT_HEAD', 'ADMIN', 'SUPER_ADMIN']:
-                    return Response(
-                        {'detail': f"Cannot assign {new_incharge.role} as Department Incharge. Must be Department Admin or higher."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                # Bi-directional sync
-                new_incharge.department = instance
-                new_incharge.save(update_fields=['department'])
+        with transaction.atomic():
+            updated_dept = serializer.save()
 
-        updated_dept = serializer.save()
+            new_data = {
+                'name': updated_dept.name,
+                'code': getattr(updated_dept, 'code', ''),
+                'parent': updated_dept.parent.name if updated_dept.parent else None,
+                'incharge': updated_dept.incharge.username if updated_dept.incharge else None
+            }
 
-        new_data = {
-            'name': updated_dept.name,
-            'code': getattr(updated_dept, 'code', ''),
-            'parent': updated_dept.parent.name if updated_dept.parent else None,
-            'incharge': updated_dept.incharge.username if updated_dept.incharge else None
-        }
-
-        log_system_event(
-            actor=request.user,
-            action_type='DEPARTMENT_UPDATED',
-            module='ORGANIZATION',
-            entity_id=updated_dept.id,
-            entity_name=updated_dept.name,
-            old_values=old_data,
-            new_values=new_data,
-            remarks=f"Updated department {updated_dept.name} ({getattr(updated_dept, 'code', '')})",
-            request=request
-        )
+            log_system_event(
+                actor=request.user,
+                action_type='DEPARTMENT_UPDATED',
+                module='ORGANIZATION',
+                entity_id=updated_dept.id,
+                entity_name=updated_dept.name,
+                old_values=old_data,
+                new_values=new_data,
+                remarks=f"Updated department {updated_dept.name} ({getattr(updated_dept, 'code', '')})",
+                request=request
+            )
 
         return Response(DepartmentSerializer(updated_dept).data)
 
     def destroy(self, request, *args, **kwargs):
         if not (request.user.is_super_admin or request.user.role == 'ADMIN'):
-            return Response({'detail': 'Only Admins can delete departments.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only Admins and Super Admins can delete departments.'}, status=status.HTTP_403_FORBIDDEN)
         
         instance = self.get_object()
 
-        # Strict Deletion Guards: Must have 0 active users and 0 active matrix branches
         active_users_count = instance.department_users.filter(is_active=True).count()
         if active_users_count > 0:
             return Response(
@@ -489,7 +484,6 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
         dept = self.get_object()
         
-        # Strict Disable Guards: Cannot disable if active users or active matrix branches exist
         if dept.is_active:
             active_users_count = dept.department_users.filter(is_active=True).count()
             if active_users_count > 0:
@@ -543,12 +537,13 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
             'business', 'department', 'supervisor', 'created_by'
         ).all()
 
+        # Strict matrix scoping per role
         if user.is_super_admin or user.role == 'ADMIN':
             return queryset.order_by('business__name', 'department__name')
-        elif user.role == 'BUSINESS_ADMIN' and biz:
-            return queryset.filter(business=biz).order_by('department__name')
-        elif user.role == 'DEPT_HEAD' and dept:
-            return queryset.filter(department=dept).order_by('business__name')
+        elif user.role == 'BUSINESS_ADMIN':
+            return queryset.filter(business=biz).order_by('department__name') if biz else BusinessDepartment.objects.none()
+        elif user.role == 'DEPT_HEAD':
+            return queryset.filter(department=dept).order_by('business__name') if dept else BusinessDepartment.objects.none()
         elif user.role == 'SUPERVISOR':
             return queryset.filter(supervisor=user).order_by('business__name')
         return BusinessDepartment.objects.none()
@@ -575,39 +570,33 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         elif not (user.is_super_admin or user.role == 'ADMIN'):
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        supervisor_user = serializer.validated_data.get('supervisor') or user
-        if supervisor_user and supervisor_user.role not in ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD']:
-            return Response(
-                {'detail': f"Matrix Incharge must be Supervisor or higher (cannot be {supervisor_user.role})."},
-                status=status.HTTP_400_BAD_REQUEST
+        with transaction.atomic():
+            supervisor_user = serializer.validated_data.get('supervisor') or user
+            if supervisor_user and supervisor_user.role not in ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD']:
+                return Response(
+                    {'detail': f"Matrix Incharge must be Supervisor or higher (cannot be {supervisor_user.role})."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            matrix = serializer.save(supervisor=supervisor_user, created_by=user)
+
+            log_system_event(
+                actor=user,
+                action_type='MATRIX_CREATED',
+                module='MATRIX',
+                entity_id=matrix.id,
+                entity_name=f"{matrix.business.code} - {matrix.department.name}",
+                new_values={
+                    'business': matrix.business.name,
+                    'department': matrix.department.name,
+                    'supervisor': supervisor_user.username if supervisor_user else None
+                },
+                remarks=f"Created matrix branch {matrix.business.code} - {matrix.department.name}",
+                request=request
             )
-
-        matrix = serializer.save(supervisor=supervisor_user, created_by=user)
-
-        # Bi-directional sync for supervisor
-        if supervisor_user and supervisor_user.role == 'SUPERVISOR':
-            supervisor_user.matrix = matrix
-            supervisor_user.business = matrix.business
-            supervisor_user.department = matrix.department
-            supervisor_user.save(update_fields=['matrix', 'business', 'department'])
-
-        log_system_event(
-            actor=user,
-            action_type='MATRIX_CREATED',
-            module='MATRIX',
-            entity_id=matrix.id,
-            entity_name=f"{matrix.business.code} - {matrix.department.name}",
-            new_values={
-                'business': matrix.business.name,
-                'department': matrix.department.name,
-                'supervisor': supervisor_user.username if supervisor_user else None
-            },
-            remarks=f"Created matrix branch {matrix.business.code} - {matrix.department.name}",
-            request=request
-        )
 
         return Response(BusinessDepartmentSerializer(matrix).data, status=status.HTTP_201_CREATED)
 
@@ -624,47 +613,25 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         elif not (user.is_super_admin or user.role in ['ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD']):
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
 
-        old_sup = instance.supervisor
-        old_business = instance.business
-        old_department = instance.department
-
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(instance, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        updated_matrix = serializer.save()
 
-        new_sup = updated_matrix.supervisor
+        with transaction.atomic():
+            old_sup = instance.supervisor
+            updated_matrix = serializer.save()
+            new_sup = updated_matrix.supervisor
 
-        # If supervisor changed, cascade repoint to all base members in this matrix
-        if old_sup != new_sup and new_sup:
-            base_members = User.objects.filter(matrix=updated_matrix, role='EMPLOYEE')
-            base_members.update(reports_to=new_sup)
-
-            # Bi-directional sync for supervisor
-            if new_sup.role == 'SUPERVISOR':
-                new_sup.matrix = updated_matrix
-                new_sup.business = updated_matrix.business
-                new_sup.department = updated_matrix.department
-                new_sup.save(update_fields=['matrix', 'business', 'department'])
-
-        log_system_event(
-            actor=user,
-            action_type='MATRIX_UPDATED',
-            module='MATRIX',
-            entity_id=updated_matrix.id,
-            entity_name=f"{updated_matrix.business.code} - {updated_matrix.department.name}",
-            old_values={
-                'supervisor': old_sup.username if old_sup else None,
-                'business': old_business.name,
-                'department': old_department.name
-            },
-            new_values={
-                'supervisor': new_sup.username if new_sup else None,
-                'business': updated_matrix.business.name,
-                'department': updated_matrix.department.name
-            },
-            remarks=f"Updated matrix branch {updated_matrix}",
-            request=request
-        )
+            log_system_event(
+                actor=user,
+                action_type='MATRIX_UPDATED',
+                module='MATRIX',
+                entity_id=updated_matrix.id,
+                entity_name=f"{updated_matrix.business.code} - {updated_matrix.department.name}",
+                old_values={'supervisor': old_sup.username if old_sup else None},
+                new_values={'supervisor': new_sup.username if new_sup else None},
+                remarks=f"Updated matrix branch {updated_matrix}",
+                request=request
+            )
 
         return Response(BusinessDepartmentSerializer(updated_matrix).data)
 
@@ -675,7 +642,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         
-        # Strict Matrix Deletion Guard: Must have 0 active members
         active_members_count = instance.matrix_members.filter(is_active=True).count()
         if active_members_count > 0:
             return Response(
@@ -706,7 +672,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 
         matrix_unit = self.get_object()
 
-        # Strict Matrix Disable Guard: Must have 0 active members
         if matrix_unit.is_active:
             active_members_count = matrix_unit.matrix_members.filter(is_active=True).count()
             if active_members_count > 0:
@@ -746,7 +711,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
-        # RBAC Check
         if actor.role == 'BUSINESS_ADMIN' and actor_biz != matrix_unit.business:
             return Response({'detail': 'Not allowed outside your business.'}, status=status.HTTP_403_FORBIDDEN)
         elif actor.role == 'DEPT_HEAD' and actor_dept != matrix_unit.department:
@@ -754,101 +718,97 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         elif actor.role == 'SUPERVISOR':
             return Response({'detail': 'Supervisors cannot reassign matrix incharge.'}, status=status.HTTP_403_FORBIDDEN)
 
-        if not supervisor_id or str(supervisor_id).lower() in ['none', 'null', '0', '']:
-            matrix_unit.supervisor = None
+        with transaction.atomic():
+            if not supervisor_id or str(supervisor_id).lower() in ['none', 'null', '0', '']:
+                matrix_unit.supervisor = None
+                matrix_unit.save(update_fields=['supervisor'])
+
+                if old_supervisor:
+                    Notification.objects.create(
+                        recipient=old_supervisor,
+                        sender=actor,
+                        notification_type='METRIX_INCHARGE',
+                        title=f"Incharge Relieved: {matrix_title}",
+                        message=f"You are no longer in charge of {matrix_title}.",
+                        data={'matrix_id': matrix_unit.id, 'action': 'UNASSIGNED'}
+                    )
+
+                log_system_event(
+                    actor=actor,
+                    action_type='MATRIX_INCHARGE_CHANGED',
+                    module='MATRIX',
+                    entity_id=matrix_unit.id,
+                    entity_name=str(matrix_unit),
+                    old_values={'supervisor': old_supervisor.username if old_supervisor else None},
+                    new_values={'supervisor': None},
+                    remarks=f"Unassigned incharge for matrix branch {matrix_unit}",
+                    request=request
+                )
+                return Response({'status': 'success', 'message': 'Matrix incharge unassigned. Members routed to fallback authority.'})
+
+            new_sup = get_object_or_404(User, id=supervisor_id)
+            if new_sup.role not in ['SUPERVISOR', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPER_ADMIN']:
+                return Response({'detail': 'Incharge must have Supervisor or higher role.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Strict Incharge Assignment RBAC checks
+            if actor.role in ['BUSINESS_ADMIN', 'DEPT_HEAD']:
+                if new_sup.id != actor.id and new_sup.role != 'SUPERVISOR':
+                    return Response({'detail': 'Business/Department Admins can only assign themselves or unassigned supervisors.'}, status=status.HTTP_403_FORBIDDEN)
+            elif actor.role == 'ADMIN':
+                if new_sup.role in ['ADMIN', 'SUPER_ADMIN']:
+                    return Response({'detail': 'Admins cannot assign fellow Admins or Super Admins as matrix incharges.'}, status=status.HTTP_403_FORBIDDEN)
+
+            if old_supervisor == new_sup:
+                return Response({'status': 'success', 'message': 'Supervisor already assigned.'})
+
+            matrix_unit.supervisor = new_sup
             matrix_unit.save(update_fields=['supervisor'])
-            
-            # Members now have unassigned direct lead
-            User.objects.filter(matrix=matrix_unit, role='EMPLOYEE').update(reports_to=None)
+
+            base_members = matrix_unit.matrix_members.filter(role='EMPLOYEE')
+            old_sup_name = (old_supervisor.full_name or old_supervisor.username) if old_supervisor else "None"
+            new_sup_name = new_sup.full_name or new_sup.username
 
             if old_supervisor:
                 Notification.objects.create(
                     recipient=old_supervisor,
                     sender=actor,
                     notification_type='METRIX_INCHARGE',
-                    title=f"Incharge Relieved: {matrix_title}",
-                    message=f"You are no longer in charge of {matrix_title}.",
-                    data={'matrix_id': matrix_unit.id, 'action': 'UNASSIGNED'}
+                    title=f"Matrix Incharge Relieved: {matrix_title}",
+                    message=f"You are no longer the in-charge of {matrix_title}. Handed over to {new_sup_name}.",
+                    data={'matrix_id': matrix_unit.id, 'role': 'OLD_SUPERVISOR'}
+                )
+
+            Notification.objects.create(
+                recipient=new_sup,
+                sender=actor,
+                notification_type='METRIX_INCHARGE',
+                title=f"Matrix Incharge Appointed: {matrix_title}",
+                message=f"From now on, you are the appointed in-charge of {matrix_title}.",
+                data={'matrix_id': matrix_unit.id, 'role': 'NEW_SUPERVISOR'}
+            )
+
+            for member in base_members:
+                Notification.objects.create(
+                    recipient=member,
+                    sender=actor,
+                    notification_type='METRIX_INCHARGE',
+                    title=f"Matrix Supervisor Updated: {matrix_title}",
+                    message=f"Your {matrix_title} supervisor has changed from {old_sup_name} to {new_sup_name}.",
+                    data={'matrix_id': matrix_unit.id, 'new_supervisor_id': new_sup.id}
                 )
 
             log_system_event(
                 actor=actor,
                 action_type='MATRIX_INCHARGE_CHANGED',
                 module='MATRIX',
+                target_user=new_sup,
                 entity_id=matrix_unit.id,
                 entity_name=str(matrix_unit),
                 old_values={'supervisor': old_supervisor.username if old_supervisor else None},
-                new_values={'supervisor': None},
-                remarks=f"Unassigned incharge for matrix branch {matrix_unit}",
+                new_values={'supervisor': new_sup.username},
+                remarks=f"Assigned {new_sup.username} as incharge for {matrix_unit}",
                 request=request
             )
-            return Response({'status': 'success', 'message': 'Matrix incharge unassigned.'})
-
-        new_sup = get_object_or_404(User, id=supervisor_id)
-        if new_sup.role not in ['SUPERVISOR', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPER_ADMIN']:
-            return Response({'detail': 'Incharge must have Supervisor or higher role.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if old_supervisor == new_sup:
-            return Response({'status': 'success', 'message': 'Supervisor already assigned.'})
-
-        matrix_unit.supervisor = new_sup
-        matrix_unit.save(update_fields=['supervisor'])
-
-        # Bi-directional sync: Update the supervisor user's own matrix, business, and dept
-        new_sup.matrix = matrix_unit
-        new_sup.business = matrix_unit.business
-        new_sup.department = matrix_unit.department
-        new_sup.save(update_fields=['matrix', 'business', 'department'])
-
-        # Cascade update: Point all base employee members to the new incharge
-        base_members = User.objects.filter(matrix=matrix_unit, role='EMPLOYEE')
-        base_members.update(reports_to=new_sup)
-
-        old_sup_name = (old_supervisor.full_name or old_supervisor.username) if old_supervisor else "None"
-        new_sup_name = new_sup.full_name or new_sup.username
-
-        # Notifications
-        if old_supervisor:
-            Notification.objects.create(
-                recipient=old_supervisor,
-                sender=actor,
-                notification_type='METRIX_INCHARGE',
-                title=f"Matrix Incharge Relieved: {matrix_title}",
-                message=f"You are no longer the in-charge of {matrix_title}. Handed over to {new_sup_name}.",
-                data={'matrix_id': matrix_unit.id, 'role': 'OLD_SUPERVISOR'}
-            )
-
-        Notification.objects.create(
-            recipient=new_sup,
-            sender=actor,
-            notification_type='METRIX_INCHARGE',
-            title=f"Matrix Incharge Appointed: {matrix_title}",
-            message=f"From now on, you are the appointed in-charge of {matrix_title}.",
-            data={'matrix_id': matrix_unit.id, 'role': 'NEW_SUPERVISOR'}
-        )
-
-        for member in base_members:
-            Notification.objects.create(
-                recipient=member,
-                sender=actor,
-                notification_type='METRIX_INCHARGE',
-                title=f"Matrix Supervisor Updated: {matrix_title}",
-                message=f"Your {matrix_title} supervisor has changed from {old_sup_name} to {new_sup_name}.",
-                data={'matrix_id': matrix_unit.id, 'new_supervisor_id': new_sup.id}
-            )
-
-        log_system_event(
-            actor=actor,
-            action_type='MATRIX_INCHARGE_CHANGED',
-            module='MATRIX',
-            target_user=new_sup,
-            entity_id=matrix_unit.id,
-            entity_name=str(matrix_unit),
-            old_values={'supervisor': old_supervisor.username if old_supervisor else None},
-            new_values={'supervisor': new_sup.username},
-            remarks=f"Assigned {new_sup.username} as incharge for {matrix_unit}",
-            request=request
-        )
 
         return Response({
             'status': 'success',
@@ -895,7 +855,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
-        # Permissions Scope Check
         if actor.role == 'SUPERVISOR' and matrix_unit.supervisor != actor:
             return Response({'detail': 'You can only add members to your own matrix.'}, status=status.HTTP_403_FORBIDDEN)
         elif actor.role == 'BUSINESS_ADMIN' and actor_biz != matrix_unit.business:
@@ -907,22 +866,23 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         if member.role != 'EMPLOYEE':
             return Response({'detail': 'Only base Employees can be assigned as matrix members.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        member.matrix = matrix_unit
-        member.business = matrix_unit.business
-        member.department = matrix_unit.department
-        member.reports_to = matrix_unit.effective_incharge
-        member.save()
+        with transaction.atomic():
+            member.matrix = matrix_unit
+            member.business = matrix_unit.business
+            member.department = matrix_unit.department
+            member.reports_to = matrix_unit.effective_incharge
+            member.save()
 
-        log_system_event(
-            actor=actor,
-            action_type='MATRIX_MEMBER_ADDED',
-            module='MATRIX',
-            target_user=member,
-            entity_id=matrix_unit.id,
-            entity_name=str(matrix_unit),
-            remarks=f"Added {member.username} to matrix branch {matrix_unit}",
-            request=request
-        )
+            log_system_event(
+                actor=actor,
+                action_type='MATRIX_MEMBER_ADDED',
+                module='MATRIX',
+                target_user=member,
+                entity_id=matrix_unit.id,
+                entity_name=str(matrix_unit),
+                remarks=f"Added {member.username} to matrix branch {matrix_unit}",
+                request=request
+            )
 
         return Response({'status': 'success', 'message': f"Added {member.username} to {matrix_unit}."})
 
@@ -934,7 +894,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
-        # Permissions Scope Check
         if actor.role == 'SUPERVISOR' and matrix_unit.supervisor != actor:
             return Response({'detail': 'You can only remove members from your own matrix.'}, status=status.HTTP_403_FORBIDDEN)
         elif actor.role == 'BUSINESS_ADMIN' and actor_biz != matrix_unit.business:
@@ -944,32 +903,103 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 
         member = get_object_or_404(User, id=user_id, matrix=matrix_unit)
 
-        member.matrix = None
-        member.business = None
-        member.department = None
-        member.reports_to = None
-        member.save()
+        with transaction.atomic():
+            member.matrix = None
+            member.business = None
+            member.department = None
+            member.reports_to = None
+            member.save()
 
-        log_system_event(
-            actor=actor,
-            action_type='MATRIX_MEMBER_REMOVED',
-            module='MATRIX',
-            target_user=member,
-            entity_id=matrix_unit.id,
-            entity_name=str(matrix_unit),
-            remarks=f"Removed {member.username} from matrix branch {matrix_unit}",
-            request=request
-        )
+            log_system_event(
+                actor=actor,
+                action_type='MATRIX_MEMBER_REMOVED',
+                module='MATRIX',
+                target_user=member,
+                entity_id=matrix_unit.id,
+                entity_name=str(matrix_unit),
+                remarks=f"Removed {member.username} from matrix branch {matrix_unit}",
+                request=request
+            )
 
         return Response({'status': 'success', 'message': f"Removed {member.username} from {matrix_unit}."})
 
     @action(detail=False, methods=['get'], url_path='candidate-incharges')
     def candidate_incharges(self, request):
+        """
+        Returns users eligible to lead a specific Matrix branch:
+        1. Actor is BUSINESS_ADMIN or DEPT_HEAD:
+           - Self
+           - Unassigned SUPERVISORs (no active matrix branch)
+           - Current supervisor if editing
+           - Excludes other admins, peer dept/business admins, and super admins.
+        2. Actor is ADMIN:
+           - BUSINESS_ADMIN of the selected business
+           - DEPT_HEAD of the selected department
+           - Unassigned SUPERVISORs
+           - Current supervisor if editing
+           - Excludes other ADMINs and SUPER_ADMINs.
+        3. Actor is SUPER_ADMIN:
+           - All of the above PLUS ADMIN users.
+        """
+        actor = request.user
+        matrix_id = request.query_params.get('matrix_id')
+        biz_id = request.query_params.get('business_id')
+        dept_id = request.query_params.get('department_id')
+
+        busy_supervisors = BusinessDepartment.objects.filter(is_active=True, supervisor__isnull=False)
+        if matrix_id:
+            busy_supervisors = busy_supervisors.exclude(id=matrix_id)
+        busy_sup_ids = busy_supervisors.values_list('supervisor_id', flat=True)
+
+        candidate_q = Q(role='SUPERVISOR') & ~Q(id__in=busy_sup_ids)
+
+        if matrix_id:
+            curr_matrix = BusinessDepartment.objects.filter(id=matrix_id).first()
+            if curr_matrix and curr_matrix.supervisor_id:
+                candidate_q |= Q(id=curr_matrix.supervisor_id)
+
+        if actor.role in ['BUSINESS_ADMIN', 'DEPT_HEAD']:
+            # Business/Dept Admin can only assign self or unassigned supervisors
+            candidate_q |= Q(id=actor.id)
+        elif actor.role == 'ADMIN':
+            # Admin can assign matching business admin, matching dept head, or unassigned supervisor
+            if biz_id:
+                candidate_q |= (
+                    Q(role='BUSINESS_ADMIN') & (
+                        Q(business_id=biz_id) |
+                        Q(managed_businesses__id=biz_id)
+                    )
+                )
+            if dept_id:
+                candidate_q |= (
+                    Q(role='DEPT_HEAD') & (
+                        Q(department_id=dept_id) |
+                        Q(managed_departments__id=dept_id)
+                    )
+                )
+        elif actor.role == 'SUPER_ADMIN':
+            # Super Admin can assign all matching leads, unassigned supervisors, and other Admins
+            candidate_q |= Q(role='ADMIN')
+            if biz_id:
+                candidate_q |= (
+                    Q(role='BUSINESS_ADMIN') & (
+                        Q(business_id=biz_id) |
+                        Q(managed_businesses__id=biz_id)
+                    )
+                )
+            if dept_id:
+                candidate_q |= (
+                    Q(role='DEPT_HEAD') & (
+                        Q(department_id=dept_id) |
+                        Q(managed_departments__id=dept_id)
+                    )
+                )
+
         candidates = User.objects.filter(
-            role__in=['SUPERVISOR', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPER_ADMIN'],
+            candidate_q,
             is_active=True
-        ).order_by('full_name', 'username')
-        
+        ).order_by('full_name', 'username').distinct()
+
         return Response([
             {
                 'id': u.id,
@@ -986,7 +1016,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 # ==========================================
 class EmployeeManagementViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSupervisorOrAdmin]
-    serializer_class = SubordinateUserSerializer
 
     def get_queryset(self):
         actor = self.request.user
@@ -994,30 +1023,40 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
+        # Exclude self from user management listing (self updates are managed via personal profile)
+        qs = qs.exclude(id=actor.id)
+
         if actor.role == 'SUPER_ADMIN':
+            # Super Admin sees and manages all accounts across the organization
             qs = qs.order_by('-date_joined')
         elif actor.role == 'ADMIN':
+            # Admin sees all lower-tier accounts; excludes other Admins and Super Admins
             qs = qs.exclude(role__in=['ADMIN', 'SUPER_ADMIN']).order_by('-date_joined')
         elif actor.role == 'BUSINESS_ADMIN':
+            # Business Admin sees only lower-tier accounts (Supervisor & Employee) strictly within their business
             if actor_biz:
                 qs = qs.filter(
-                    Q(business=actor_biz) | Q(matrix__business=actor_biz) | Q(managed_businesses=actor_biz)
-                ).exclude(role__in=['ADMIN', 'SUPER_ADMIN']).order_by('-date_joined')
+                    Q(business=actor_biz) | Q(matrix__business=actor_biz) | Q(managed_businesses=actor_biz),
+                    role__in=['SUPERVISOR', 'EMPLOYEE']
+                ).order_by('-date_joined')
             else:
                 return User.objects.none()
         elif actor.role == 'DEPT_HEAD':
+            # Department Admin sees only lower-tier accounts (Supervisor & Employee) strictly within their department
             if actor_dept:
                 qs = qs.filter(
-                    Q(department=actor_dept) | Q(matrix__department=actor_dept) | Q(managed_departments=actor_dept)
-                ).exclude(role__in=['ADMIN', 'SUPER_ADMIN']).order_by('-date_joined')
+                    Q(department=actor_dept) | Q(matrix__department=actor_dept) | Q(managed_departments=actor_dept),
+                    role__in=['SUPERVISOR', 'EMPLOYEE']
+                ).order_by('-date_joined')
             else:
                 return User.objects.none()
         elif actor.role == 'SUPERVISOR':
-            subordinate_ids = get_subordinate_ids(actor, include_self=False)
-            qs = qs.filter(
-                Q(matrix__supervisor=actor) | Q(id__in=subordinate_ids),
-                role='EMPLOYEE'
-            ).order_by('-date_joined')
+            # Supervisor sees base employees strictly belonging to their current matrix branch
+            eff_matrix = getattr(actor, 'effective_matrix', None) or actor.matrix
+            if eff_matrix:
+                qs = qs.filter(matrix=eff_matrix, role='EMPLOYEE').order_by('-date_joined')
+            else:
+                return User.objects.none()
         else:
             return User.objects.none()
 
@@ -1040,115 +1079,86 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'create':
             return UserCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return UserUpdateSerializer
         return SubordinateUserSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        log_system_event(
+            actor=request.user,
+            action_type='USER_CREATED',
+            module='USER',
+            target_user=user,
+            entity_id=user.id,
+            entity_name=user.username,
+            remarks=f"Created user account {user.username} with role {user.role}",
+            request=request
+        )
+
         return Response(SubordinateUserSerializer(user).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         target_user = self.get_object()
         actor = request.user
 
-        if actor.role == 'ADMIN' and target_user.role in ['ADMIN', 'SUPER_ADMIN']:
-            return Response({'detail': 'Admins are not permitted to modify fellow Admins.'}, status=status.HTTP_403_FORBIDDEN)
+        # 1. Self update is strictly prohibited in User Management table (routes to profile view)
+        if actor.id == target_user.id:
+            return Response({'detail': 'You cannot edit your own account through User Management. Use your Profile page.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if actor.role == 'SUPERVISOR':
+        # 2. Hierarchy rule: Cannot edit users of equal or higher tier
+        actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
+        target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
+        if target_rank <= actor_rank:
+            return Response({'detail': 'You cannot modify users in the same or higher administrative tier.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 3. Entity & Matrix scope guards
+        actor_biz = getattr(actor, 'effective_business', None) or actor.business
+        actor_dept = getattr(actor, 'effective_department', None) or actor.department
+
+        if actor.role == 'BUSINESS_ADMIN':
+            target_biz = getattr(target_user, 'effective_business', None) or target_user.business
+            if not target_biz or target_biz.id != actor_biz.id:
+                return Response({'detail': 'You can only modify users linked to your assigned business.'}, status=status.HTTP_403_FORBIDDEN)
+        elif actor.role == 'DEPT_HEAD':
+            target_dept = getattr(target_user, 'effective_department', None) or target_user.department
+            if not target_dept or target_dept.id != actor_dept.id:
+                return Response({'detail': 'You can only modify users linked to your assigned department.'}, status=status.HTTP_403_FORBIDDEN)
+        elif actor.role == 'SUPERVISOR':
+            eff_matrix = getattr(actor, 'effective_matrix', None) or actor.matrix
+            if not eff_matrix or target_user.matrix_id != eff_matrix.id:
+                return Response({'detail': 'Supervisors can only modify members of their own matrix branch.'}, status=status.HTTP_403_FORBIDDEN)
             if request.data.get('role') and request.data.get('role') != 'EMPLOYEE':
                 return Response({'detail': 'Supervisors cannot modify employee role tiers.'}, status=status.HTTP_403_FORBIDDEN)
-            if 'matrix_id' in request.data:
-                req_matrix = request.data.get('matrix_id')
-                if req_matrix and target_user.matrix_id != req_matrix:
-                    return Response({'detail': 'Supervisors cannot move members to another matrix.'}, status=status.HTTP_403_FORBIDDEN)
 
-        old_values = {}
-        new_values = {}
+        # 4. Prevent assigning equal or higher roles
+        req_role = request.data.get('role')
+        if req_role:
+            req_rank = ROLE_HIERARCHY_RANK.get(req_role, 99)
+            if req_rank <= actor_rank:
+                return Response({'detail': 'You cannot elevate a user to your own or higher role tier.'}, status=status.HTTP_403_FORBIDDEN)
+
         old_matrix = target_user.matrix
-        new_matrix = None
 
-        # 1. Update basic profile fields
-        for attr in ['full_name', 'username', 'email', 'phone', 'designation', 'date_of_joining',
-                     'shift_start_time', 'shift_end_time', 'self_idle_timer_start', 'team_idle_timer_start']:
-            if attr in request.data:
-                old_val = getattr(target_user, attr)
-                new_val = request.data.get(attr)
-                if str(old_val) != str(new_val):
-                    old_values[attr] = str(old_val)
-                    new_values[attr] = str(new_val)
-                    setattr(target_user, attr, new_val)
+        serializer = self.get_serializer(target_user, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        updated_user = serializer.save()
 
-        # 2. Update role if authorized
-        new_role = request.data.get('role')
-        if new_role and new_role != target_user.role and actor.role in ['ADMIN', 'SUPER_ADMIN']:
-            if actor.role == 'ADMIN' and new_role in ['ADMIN', 'SUPER_ADMIN']:
-                return Response({'detail': 'Only Super Admins can assign Admin roles.'}, status=status.HTTP_403_FORBIDDEN)
-            old_values['role'] = target_user.role
-            new_values['role'] = new_role
-            target_user.role = new_role
-
-        # 3. Dynamic Matrix / Business / Department assignment
-        if 'matrix_id' in request.data:
-            matrix_id = request.data.get('matrix_id')
-            old_matrix_str = str(target_user.matrix) if target_user.matrix else 'No Matrix'
-
-            if matrix_id and str(matrix_id).lower() not in ['none', 'null', '0']:
-                matrix_obj = BusinessDepartment.objects.filter(id=matrix_id).select_related('business', 'department', 'supervisor').first()
-                if matrix_obj:
-                    new_matrix = matrix_obj
-                    target_user.matrix = matrix_obj
-                    target_user.business = matrix_obj.business
-                    target_user.department = matrix_obj.department
-
-                    if target_user.role == 'EMPLOYEE':
-                        target_user.reports_to = matrix_obj.effective_incharge
-                    elif target_user.role == 'SUPERVISOR':
-                        matrix_obj.supervisor = target_user
-                        matrix_obj.save(update_fields=['supervisor'])
-                    new_matrix_str = str(matrix_obj)
-                else:
-                    new_matrix_str = 'No Matrix'
-            else:
-                target_user.matrix = None
-                target_user.business = None
-                target_user.department = None
-                target_user.reports_to = None
-                new_matrix_str = 'No Matrix'
-
-            if old_matrix_str != new_matrix_str:
-                old_values['matrix'] = old_matrix_str
-                new_values['matrix'] = new_matrix_str
-
-        elif actor.role in ['ADMIN', 'SUPER_ADMIN']:
-            if 'business_id' in request.data:
-                b_id = request.data.get('business_id')
-                target_user.business = Business.objects.filter(id=b_id).first() if b_id else None
-
-            if 'department_id' in request.data:
-                d_id = request.data.get('department_id')
-                target_user.department = Department.objects.filter(id=d_id).first() if d_id else None
-
-            if 'reports_to_id' in request.data:
-                r_id = request.data.get('reports_to_id')
-                old_mgr = target_user.reports_to.username if target_user.reports_to else None
-                new_mgr_obj = User.objects.filter(id=r_id).first() if r_id and int(r_id) != target_user.id else None
-                target_user.reports_to = new_mgr_obj
-                new_mgr = new_mgr_obj.username if new_mgr_obj else None
-                if old_mgr != new_mgr:
-                    old_values['reports_to'] = old_mgr
-                    new_values['reports_to'] = new_mgr
-
-        target_user.save()
-
-        # Cascade Transfer Notifications if Matrix changed
-        if 'matrix_id' in request.data and old_matrix != new_matrix:
+        if old_matrix != updated_user.matrix:
             old_matrix_title = f"{old_matrix.business.code} - {old_matrix.department.name}" if old_matrix else "No Matrix"
-            new_matrix_title = f"{new_matrix.business.code} - {new_matrix.department.name}" if new_matrix else "No Matrix"
-            emp_name = target_user.full_name or target_user.username
+            new_matrix_title = f"{updated_user.matrix.business.code} - {updated_user.matrix.department.name}" if updated_user.matrix else "No Matrix"
+            emp_name = updated_user.full_name or updated_user.username
 
             Notification.objects.create(
-                recipient=target_user,
+                recipient=updated_user,
                 sender=actor,
                 notification_type='METRIX_TRANSFER',
                 title='Matrix Assignment Updated',
@@ -1156,59 +1166,56 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
                 data={'old_matrix': old_matrix_title, 'new_matrix': new_matrix_title}
             )
 
-            if old_matrix and old_matrix.supervisor and old_matrix.supervisor != target_user:
+            if old_matrix and old_matrix.supervisor and old_matrix.supervisor != updated_user:
                 Notification.objects.create(
                     recipient=old_matrix.supervisor,
                     sender=actor,
                     notification_type='METRIX_TRANSFER',
                     title='Member Transferred Out',
                     message=f"{emp_name} has been transferred out of {old_matrix_title} to {new_matrix_title}.",
-                    data={'user_id': target_user.id}
+                    data={'user_id': updated_user.id}
                 )
 
-            if new_matrix and new_matrix.supervisor and new_matrix.supervisor != target_user:
+            if updated_user.matrix and updated_user.matrix.supervisor and updated_user.matrix.supervisor != updated_user:
                 Notification.objects.create(
-                    recipient=new_matrix.supervisor,
+                    recipient=updated_user.matrix.supervisor,
                     sender=actor,
                     notification_type='METRIX_TRANSFER',
                     title='New Member Assigned',
                     message=f"{emp_name} has been assigned to your matrix branch ({new_matrix_title}).",
-                    data={'user_id': target_user.id}
+                    data={'user_id': updated_user.id}
                 )
 
-        if old_values or new_values:
-            log_system_event(
-                actor=actor,
-                action_type='USER_UPDATED',
-                module='USER',
-                target_user=target_user,
-                entity_id=target_user.id,
-                entity_name=target_user.username,
-                old_values=old_values,
-                new_values=new_values,
-                remarks=f"Updated profile details for {target_user.username}",
-                request=request
-            )
+        log_system_event(
+            actor=actor,
+            action_type='USER_UPDATED',
+            module='USER',
+            target_user=updated_user,
+            entity_id=updated_user.id,
+            entity_name=updated_user.username,
+            remarks=f"Updated profile details for {updated_user.username}",
+            request=request
+        )
 
-        return Response(SubordinateUserSerializer(target_user).data, status=status.HTTP_200_OK)
+        return Response(SubordinateUserSerializer(updated_user).data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         actor = request.user
         target_user = self.get_object()
 
-        if actor.role == 'SUPERVISOR':
-            return Response(
-                {'detail': 'Supervisors cannot delete accounts. Toggle account status to Disabled instead.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if actor.role == 'ADMIN' and target_user.role in ['ADMIN', 'SUPER_ADMIN']:
-            return Response({'detail': 'Admins are not permitted to remove Admin accounts.'}, status=status.HTTP_403_FORBIDDEN)
-
-        if target_user.id == actor.id:
+        if actor.id == target_user.id:
             return Response({'detail': 'You cannot delete your own account.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Deletion Guard: Check for active in-flight tasks
+        # Hierarchy validation: Can only delete lower tier users
+        actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
+        target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
+        if target_rank <= actor_rank:
+            return Response({'detail': 'You cannot delete users in the same or higher administrative tier.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if actor.role not in ['ADMIN', 'SUPER_ADMIN']:
+            return Response({'detail': 'Only Admins and Super Admins are permitted to delete user accounts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Active tasks deletion blocker
         active_tasks = Task.objects.filter(assigned_to=target_user, status__in=ACTIVE_TASK_STATUSES)
         if active_tasks.exists():
             return Response(
@@ -1218,7 +1225,16 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
 
         u_id = target_user.id
         u_name = target_user.username
-        res = super().destroy(request, *args, **kwargs)
+
+        with transaction.atomic():
+            Business.objects.filter(incharge=target_user).update(incharge=None)
+            Department.objects.filter(incharge=target_user).update(incharge=None)
+            BusinessDepartment.objects.filter(supervisor=target_user).update(supervisor=None)
+
+            fallback_manager = target_user.reports_to or User.objects.filter(role='SUPER_ADMIN', is_active=True).first()
+            User.objects.filter(reports_to=target_user).update(reports_to=fallback_manager)
+
+            target_user.delete()
 
         log_system_event(
             actor=actor,
@@ -1229,18 +1245,21 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
             remarks=f"Permanently removed user account: {u_name}",
             request=request
         )
-        return res
+        return Response({'detail': f'User {u_name} deleted successfully.'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='toggle-status')
     def toggle_status(self, request, pk=None):
         target_user = self.get_object()
         actor = request.user
 
-        if actor.role == 'ADMIN' and target_user.role in ['ADMIN', 'SUPER_ADMIN']:
-            return Response({'detail': 'Admins cannot disable other Admin accounts.'}, status=status.HTTP_403_FORBIDDEN)
-
         if target_user.id == actor.id:
             return Response({'detail': 'You cannot disable your own account.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Hierarchy validation
+        actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
+        target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
+        if target_rank <= actor_rank:
+            return Response({'detail': 'You cannot alter the account status of users in the same or higher administrative tier.'}, status=status.HTTP_403_FORBIDDEN)
 
         if target_user.is_active:
             blocking_tasks = Task.objects.filter(
@@ -1340,13 +1359,37 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
             for m in scoped_matrices
         ]
 
-        businesses = Business.objects.filter(is_active=True).values('id', 'name', 'code').order_by('name')
-        departments = Department.objects.filter(is_active=True).values('id', 'name', 'code').order_by('name')
+        businesses = Business.objects.filter(is_active=True).select_related('incharge').order_by('name')
+        departments = Department.objects.filter(is_active=True).select_related('incharge').order_by('name')
+
+        business_list = [
+            {
+                'id': b.id,
+                'name': b.name,
+                'code': b.code,
+                'has_incharge': bool(b.incharge_id),
+                'incharge_id': b.incharge_id,
+                'incharge_name': (b.incharge.full_name or b.incharge.username) if b.incharge else None
+            }
+            for b in businesses
+        ]
+
+        department_list = [
+            {
+                'id': d.id,
+                'name': d.name,
+                'code': d.code,
+                'has_incharge': bool(d.incharge_id),
+                'incharge_id': d.incharge_id,
+                'incharge_name': (d.incharge.full_name or d.incharge.username) if d.incharge else None
+            }
+            for d in departments
+        ]
 
         return Response({
             'matrices': matrix_options,
-            'businesses': list(businesses),
-            'departments': list(departments),
+            'businesses': business_list,
+            'departments': department_list,
             'currentUser': {
                 'id': actor.id,
                 'role': actor.role,
@@ -1386,10 +1429,33 @@ class UserCockpitDetailView(APIView):
 
         dept_obj = getattr(target_user, 'effective_department', None) or target_user.department or (target_user.matrix.department if target_user.matrix else None)
         biz_obj = getattr(target_user, 'effective_business', None) or target_user.business or (target_user.matrix.business if target_user.matrix else None)
-        mgr_obj = target_user.reports_to
+        mgr_obj = target_user.reports_to or target_user.get_hierarchical_upstream_lead()
 
-        dept_display = f"{dept_obj.name}" + (f" ({dept_obj.code})" if getattr(dept_obj, 'code', None) else "") if dept_obj else 'No Department'
-        biz_display = f"{biz_obj.name} ({biz_obj.code})" if biz_obj else 'No Business'
+        # Dynamic cross-entity display logic
+        if target_user.role in ['ADMIN', 'SUPER_ADMIN']:
+            dept_display = 'All Departments'
+            biz_display = 'All Businesses'
+        elif target_user.role == 'BUSINESS_ADMIN':
+            biz_display = f"{biz_obj.name} ({biz_obj.code})" if biz_obj else 'No Business'
+            dept_display = 'All Departments'
+        elif target_user.role == 'DEPT_HEAD':
+            dept_display = f"{dept_obj.name}" + (f" ({dept_obj.code})" if getattr(dept_obj, 'code', None) else "") if dept_obj else 'No Department'
+            biz_display = 'All Businesses'
+        else:
+            dept_display = f"{dept_obj.name}" + (f" ({dept_obj.code})" if getattr(dept_obj, 'code', None) else "") if dept_obj else 'No Department'
+            biz_display = f"{biz_obj.name} ({biz_obj.code})" if biz_obj else 'No Business'
+
+        joining_date_str = None
+        if getattr(target_user, 'date_of_joining', None):
+            joining_date_str = (
+                target_user.date_of_joining.strftime('%Y-%m-%d')
+                if hasattr(target_user.date_of_joining, 'strftime')
+                else str(target_user.date_of_joining)
+            )
+
+        matrix_display = str(target_user.matrix) if target_user.matrix else (
+            'All Matrices' if target_user.role in ['BUSINESS_ADMIN', 'DEPT_HEAD', 'ADMIN', 'SUPER_ADMIN'] else 'No Matrix'
+        )
 
         return Response({
             'user': {
@@ -1400,10 +1466,11 @@ class UserCockpitDetailView(APIView):
                 'role': target_user.role,
                 'designation': target_user.designation or 'Staff',
                 'employee_code': getattr(target_user, 'employee_code', None) or f"EID{target_user.id:02d}",
-                'matrix': str(target_user.matrix) if target_user.matrix else 'No Matrix',
+                'date_of_joining': joining_date_str,
+                'matrix': matrix_display,
                 'department': dept_display,
                 'business': biz_display,
-                'primary_manager': (mgr_obj.full_name or mgr_obj.username) if mgr_obj else 'None',
+                'primary_manager': (mgr_obj.full_name or mgr_obj.username) if mgr_obj else 'Global Operations',
                 'shift_start_time': str(getattr(target_user, 'shift_start_time', '09:00:00')),
                 'shift_end_time': str(getattr(target_user, 'shift_end_time', '18:00:00')),
                 'self_idle_timer_start': str(getattr(target_user, 'self_idle_timer_start', '10:00:00')),
@@ -1484,7 +1551,7 @@ class MySubordinatesListView(APIView):
 
 
 # ==========================================
-# 9. PASSWORD RESET WITH OTP
+# 9. PASSWORD RESET WITH OTP (LIVE SMTP DISPATCH)
 # ==========================================
 class RequestPasswordResetOTPView(APIView):
     permission_classes = [AllowAny]
@@ -1492,14 +1559,33 @@ class RequestPasswordResetOTPView(APIView):
     def post(self, request):
         serializer = RequestOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
-        user = User.objects.filter(email=email, is_active=True).first()
+        email = serializer.validated_data['email'].strip().lower()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
 
         if user:
             otp = PasswordResetOTP.objects.create(user=user)
-            print(f"\n======================================")
-            print(f" PASSWORD RESET OTP FOR {user.email}: {otp.otp_code}")
-            print(f"======================================\n")
+
+            subject = "Your TeamPulse Password Recovery OTP"
+            message = (
+                f"Hello {user.full_name or user.username},\n\n"
+                f"You requested a password reset for your account.\n"
+                f"Your 6-digit verification code is:\n\n"
+                f"    {otp.otp_code}\n\n"
+                f"This code will expire in 10 minutes.\n"
+                f"If you did not request this password reset, please ignore this email.\n\n"
+                f"— TeamPulse System Security"
+            )
+
+            try:
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                print(f"SMTP Dispatch Failure: {e}")
 
             log_system_event(
                 actor=None,
@@ -1508,11 +1594,14 @@ class RequestPasswordResetOTPView(APIView):
                 target_user=user,
                 entity_id=user.id,
                 entity_name=user.username,
-                remarks=f"Password reset OTP generated for {user.email}",
+                remarks=f"Password reset OTP dispatched to {user.email}",
                 request=request
             )
 
-        return Response({'detail': 'If the email exists, an OTP has been dispatched.'}, status=status.HTTP_200_OK)
+        return Response(
+            {'detail': 'If this email is registered in our system, a verification code has been dispatched.'},
+            status=status.HTTP_200_OK
+        )
 
 
 class ResetPasswordWithOTPView(APIView):
@@ -1521,11 +1610,11 @@ class ResetPasswordWithOTPView(APIView):
     def post(self, request):
         serializer = ResetPasswordWithOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
+        email = serializer.validated_data['email'].strip().lower()
         otp_code = serializer.validated_data['otp_code']
         new_password = serializer.validated_data['new_password']
 
-        user = get_object_or_404(User, email=email, is_active=True)
+        user = get_object_or_404(User, email__iexact=email, is_active=True)
         record = PasswordResetOTP.objects.filter(
             user=user, otp_code=otp_code, is_used=False
         ).order_by('-created_at').first()

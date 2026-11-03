@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, CheckSquare, Clock, AlertTriangle, AlertCircle, 
-  Calendar, CheckCircle2, User, Building, Shield, Edit3, X, XCircle, Tag, Layers
+  Calendar, CheckCircle2, User, Building, Briefcase, Shield, Edit3, X, XCircle, Tag, Layers
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -52,6 +52,14 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
   }
 
   const { user, tasks } = data;
+
+  // Cross-entity scope display
+  const isDeptHead = user.role === 'DEPT_HEAD';
+  const isBizAdmin = user.role === 'BUSINESS_ADMIN';
+  const isGlobalAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(user.role);
+
+  const bizDisplay = isGlobalAdmin || isDeptHead ? 'All Businesses' : (user.business || 'No Business');
+  const deptDisplay = isGlobalAdmin || isBizAdmin ? 'All Departments' : (user.department || 'No Department');
 
   const renderBannerStatus = () => {
     if (!user.is_active) {
@@ -105,15 +113,62 @@ export default function UserDetailView({ userId, onBack, currentUser }) {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg font-bold text-slate-900">{user.full_name || user.username}</h1>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 border font-bold">
                 {user.role}
               </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {user.employee_code || `EID${user.id}`}
+              </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {user.designation || 'Staff'} • <strong>Matrix:</strong> {user.matrix || 'No Matrix'} • <strong>Lead:</strong> {user.primary_manager || 'None'}
-            </p>
+
+            {/* Entity, Matrix & Date of Joining Details */}
+            <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mt-1.5">
+              <span>{user.designation || 'Staff'}</span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <Briefcase size={12} className="text-slate-400" />
+                <strong className={isGlobalAdmin || isDeptHead ? "text-indigo-600" : "text-slate-700"}>{bizDisplay}</strong>
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <Building size={12} className="text-slate-400" />
+                <strong className={isGlobalAdmin || isBizAdmin ? "text-blue-600" : "text-slate-700"}>{deptDisplay}</strong>
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <Layers size={12} className="text-slate-400" />
+                <strong>Matrix:</strong> {user.matrix || 'No Matrix'}
+              </span>
+              {user.date_of_joining && (
+                <>
+                  <span>•</span>
+                  <span className="flex items-center gap-1 text-slate-600 font-medium">
+                    <Calendar size={12} className="text-slate-400" />
+                    <span>Joined: {user.date_of_joining}</span>
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Reporting Leads */}
+            <div className="text-[11px] text-slate-400 mt-1">
+              {user.role === 'SUPERVISOR' && user.dual_reporting_leads?.length > 0 ? (
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <strong>Reporting Leads:</strong>
+                  {user.dual_reporting_leads.map((l, i) => (
+                    <span key={i} className="text-slate-700 font-medium bg-slate-100 px-1.5 py-0.2 rounded">
+                      <span className="text-blue-600">{l.type}:</span> {l.name}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span>
+                  <strong>Reporting Lead:</strong> {user.primary_manager || 'Global Operations'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

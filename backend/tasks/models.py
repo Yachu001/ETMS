@@ -94,7 +94,8 @@ class Task(models.Model):
     def is_overdue(self):
         if not self.due_date:
             return False
-        if self.status in ['VERIFIED', 'CANCELLED']:
+        # Matches is_task_overdue_for_user in views.py
+        if self.status in ['VERIFIED', 'REJECTED', 'CANCELLED'] or self.progress_percentage == 100:
             return False
             
         today = timezone.localtime(timezone.now()).date()
@@ -204,6 +205,13 @@ class TaskReasonSubmission(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='submitted_reasons'
+    )
+    routed_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='delay_reports_received'
     )
     reviewed_by = models.ForeignKey(
         User,

@@ -1,18 +1,20 @@
+// frontend/src/components/PersonalProfileView.jsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   User, Mail, Phone, Clock, Network, Building2, 
   Building, Bell, Shield, Layers, CheckCircle2, 
-  Calendar, AlertCircle, Save, Star, Globe
+  Calendar, AlertCircle, Save, Star, Globe, Info, Briefcase
 } from 'lucide-react';
 import api from '../api/axios';
 
 const ROLE_BADGE_STYLES = {
-  SUPER_ADMIN: 'bg-rose-50 text-rose-700 border-rose-200',
-  ADMIN: 'bg-amber-50 text-amber-700 border-amber-200',
-  DEPT_HEAD: 'bg-purple-50 text-purple-700 border-purple-200',
-  BUSINESS_ADMIN: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  SUPERVISOR: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  EMPLOYEE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  SUPER_ADMIN: 'bg-purple-100 text-purple-800 border-purple-200',
+  ADMIN: 'bg-blue-100 text-blue-800 border-blue-200',
+  BUSINESS_ADMIN: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  DEPT_HEAD: 'bg-teal-100 text-teal-800 border-teal-200',
+  SUPERVISOR: 'bg-amber-100 text-amber-900 border-amber-200',
+  EMPLOYEE: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
 export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
@@ -102,26 +104,11 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
   const isSuperAdminOrAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(role);
   const isBusinessAdmin = role === 'BUSINESS_ADMIN';
   const isDeptAdmin = role === 'DEPT_HEAD';
+  const isSupervisor = role === 'SUPERVISOR';
   const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role);
 
-  // Parse Multi/Single lists with fallbacks
-  const businessesList = Array.isArray(profile.businesses) && profile.businesses.length > 0 
-    ? profile.businesses 
-    : profile.business_name 
-      ? [{ id: 1, name: profile.business_name, is_primary: true }]
-      : [];
-
-  const departmentsList = Array.isArray(profile.departments) && profile.departments.length > 0
-    ? profile.departments 
-    : profile.department_name 
-      ? [{ id: 1, name: profile.department_name, is_primary: true }]
-      : [];
-
-  const reportingLeadsList = Array.isArray(profile.reporting_managers) && profile.reporting_managers.length > 0
-    ? profile.reporting_managers
-    : profile.manager_name && profile.manager_name !== 'Unassigned' && profile.manager_name !== 'None'
-      ? [{ id: 1, full_name: profile.manager_name, is_primary: true }]
-      : [];
+  // Dual reporting leads for Supervisors
+  const dualLeads = Array.isArray(profile.dual_reporting_leads) ? profile.dual_reporting_leads : [];
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10 text-slate-800">
@@ -161,7 +148,7 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
 
         <div className="flex items-center gap-2 text-xs self-start sm:self-center">
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-right">
-            <span className="text-[10px] text-slate-400 uppercase font-semibold block flex items-center justify-end gap-1">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold flex items-center justify-end gap-1">
               <Calendar size={11} /> Date of Joining
             </span>
             <span className="font-mono font-semibold text-slate-800 text-xs">
@@ -188,11 +175,11 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
       {/* 2. Organizational Matrix & Scoping Section */}
       <div className="space-y-3">
         <h3 className="font-bold text-slate-700 uppercase tracking-wider text-xs flex items-center gap-1.5 px-1">
-          <Layers size={14} className="text-indigo-600" />
+          <Layers size={14} className="text-blue-600" />
           Linked Organizational Matrix & Hierarchy Scope
         </h3>
 
-        {/* ADMIN / SUPER ADMIN: GLOBAL SCOPE (REPORTING TO HIDDEN) */}
+        {/* CASE A: ADMIN / SUPER ADMIN - GLOBAL SCOPE */}
         {isSuperAdminOrAdmin ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs space-y-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-800 border-b border-slate-100 pb-2">
@@ -218,41 +205,34 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
             </div>
           </div>
         ) : (
-          /* REGULAR TIERS, BUSINESS ADMIN, AND DEPT ADMIN */
+          /* CASE B: BUSINESS ADMIN, DEPT ADMIN, SUPERVISOR & BASE EMPLOYEE */
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
             {/* BUSINESS CARD */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-2">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                  <Building2 size={14} className="text-indigo-600" />
-                  {isDeptAdmin ? 'All Related Businesses' : 'Assigned Business'}
+                  <Building2 size={14} className="text-blue-600" />
+                  {isDeptAdmin ? 'Business Scope' : 'Assigned Business'}
                 </span>
                 {isDeptAdmin && (
-                  <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 font-semibold px-1.5 py-0.5 rounded">
-                    Cross-Business
+                  <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold px-1.5 py-0.5 rounded">
+                    All Businesses
                   </span>
                 )}
               </div>
               <div className="space-y-1.5">
-                {businessesList.length > 0 ? (
-                  businessesList.map((b, idx) => (
-                    <div 
-                      key={b.id || idx} 
-                      className={`p-2 rounded-xl border text-xs flex items-center justify-between ${
-                        b.is_primary 
-                          ? 'bg-indigo-50/60 border-indigo-200 text-indigo-950 font-semibold' 
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <span className="truncate">{b.name} {b.code ? `(${b.code})` : ''}</span>
-                      {b.is_primary && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold uppercase">
-                          <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
-                        </span>
-                      )}
-                    </div>
-                  ))
+                {isDeptAdmin ? (
+                  <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-200 text-xs font-semibold text-indigo-900">
+                    Active across all operating businesses
+                  </div>
+                ) : profile.business_name ? (
+                  <div className="p-2.5 rounded-xl border text-xs bg-blue-50/60 border-blue-200 text-blue-950 font-semibold flex items-center justify-between">
+                    <span className="truncate">{profile.business_name} {profile.business_code ? `(${profile.business_code})` : ''}</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                      <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
+                    </span>
+                  </div>
                 ) : (
                   <div className="text-xs text-slate-400 italic p-2">No business associated</div>
                 )}
@@ -263,34 +243,27 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-2">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                  <Building size={14} className="text-blue-600" />
-                  {isBusinessAdmin ? 'All Related Departments' : 'Assigned Department'}
+                  <Building size={14} className="text-teal-600" />
+                  {isBusinessAdmin ? 'Department Scope' : 'Assigned Department'}
                 </span>
                 {isBusinessAdmin && (
-                  <span className="text-[10px] bg-cyan-50 text-cyan-700 border border-cyan-200 font-semibold px-1.5 py-0.5 rounded">
-                    Entity-Wide
+                  <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
+                    All Departments
                   </span>
                 )}
               </div>
               <div className="space-y-1.5">
-                {departmentsList.length > 0 ? (
-                  departmentsList.map((d, idx) => (
-                    <div 
-                      key={d.id || idx} 
-                      className={`p-2 rounded-xl border text-xs flex items-center justify-between ${
-                        d.is_primary 
-                          ? 'bg-blue-50/60 border-blue-200 text-blue-950 font-semibold' 
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <span className="truncate">{d.name}</span>
-                      {d.is_primary && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold uppercase">
-                          <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
-                        </span>
-                      )}
-                    </div>
-                  ))
+                {isBusinessAdmin ? (
+                  <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-200 text-xs font-semibold text-blue-900">
+                    Active across all departments in this business
+                  </div>
+                ) : profile.department_name ? (
+                  <div className="p-2.5 rounded-xl border text-xs bg-teal-50/60 border-teal-200 text-teal-950 font-semibold flex items-center justify-between">
+                    <span className="truncate">{profile.department_name}</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                      <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
+                    </span>
+                  </div>
                 ) : (
                   <div className="text-xs text-slate-400 italic p-2">No department associated</div>
                 )}
@@ -302,37 +275,51 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <span className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <Network size={14} className="text-emerald-600" />
-                  Direct Reporting To
+                  {isSupervisor ? 'Dual Direct Reporting Leads' : 'Direct Reporting Lead'}
                 </span>
               </div>
+              
               <div className="space-y-1.5">
-                {reportingLeadsList.length > 0 ? (
-                  reportingLeadsList.map((m, idx) => (
-                    <div 
-                      key={m.id || idx} 
-                      className={`p-2 rounded-xl border text-xs flex items-center justify-between ${
-                        m.is_primary 
-                          ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950 font-semibold' 
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <div>
-                        <div className="truncate">{m.full_name || m.username}</div>
-                        {m.designation && <div className="text-[10px] text-slate-400 font-normal">{m.designation}</div>}
-                      </div>
-                      {m.is_primary && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold uppercase">
-                          <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
-                        </span>
-                      )}
+                {isSupervisor && dualLeads.length > 0 ? (
+                  dualLeads.map((lead, idx) => (
+                    <div key={lead.id || idx} className="p-2 bg-indigo-50/50 rounded-xl border border-indigo-100 text-xs">
+                      <div className="text-[10px] uppercase font-bold text-indigo-600">{lead.type}</div>
+                      <div className="font-semibold text-slate-800">{lead.name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{lead.scope}</div>
                     </div>
                   ))
+                ) : isBusinessAdmin || isDeptAdmin ? (
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+                    Direct Functional Lead (Executive Tier)
+                  </div>
+                ) : profile.manager_name && profile.manager_name !== 'Unassigned' && profile.manager_name !== 'None' ? (
+                  <div className="p-2.5 rounded-xl border text-xs bg-emerald-50/60 border-emerald-200 text-emerald-950 font-semibold flex items-center justify-between">
+                    <div>
+                      <div className="truncate">{profile.manager_name}</div>
+                      <div className="text-[10px] text-slate-400 font-normal">Matrix Supervisor</div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-bold uppercase">
+                      <Star size={9} className="fill-emerald-600 text-emerald-600" /> Primary
+                    </span>
+                  </div>
                 ) : (
                   <div className="text-xs text-slate-500 p-2 italic">Direct / Self Lead</div>
                 )}
               </div>
             </div>
 
+          </div>
+        )}
+
+        {/* OPERATIONAL MATRIX BADGE FOR SUPERVISORS & EMPLOYEES */}
+        {!isSuperAdminOrAdmin && profile.matrix_title && (
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+            <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+              <Layers size={13} className="text-blue-600" /> Operational Matrix Branch
+            </span>
+            <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+              {profile.matrix_title}
+            </span>
           </div>
         )}
       </div>
@@ -356,7 +343,7 @@ export default function PersonalProfileView({ currentUser, onProfileUpdated }) {
           <div className="text-sm font-semibold text-slate-800 truncate" title={profile.email || ''}>
             {profile.email || 'Not Configured'}
           </div>
-          <p className="text-[11px] text-slate-400">Used for credentials & password recovery.</p>
+          <p className="text-[11px] text-slate-400">Used for credentials & password recovery OTP.</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1.5">

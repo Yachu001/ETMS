@@ -1,9 +1,11 @@
+# backend/tasks/serializers.py
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import datetime
 
-from .models import Task, TaskActivityLog, DailyWorkSelection, TaskDelayReport
+from .models import Task, TaskActivityLog, DailyWorkSelection, TaskReasonSubmission
 from accounts.utils import get_subordinate_ids
 
 User = get_user_model()
@@ -90,10 +92,6 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_due_date(self, value):
-        """
-        Enforce that task overdue/due date cannot be in the past
-        when creating a new task or setting its deadline.
-        """
         if value:
             today = timezone.localtime(timezone.now()).date()
             if value < today:
@@ -101,7 +99,6 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_assigned_to(self, value):
-        # 1. Guard against assigning to disabled or inactive users
         if value:
             is_disabled = not value.is_active or getattr(value, 'is_disabled', False)
             if is_disabled:
@@ -117,24 +114,28 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         if actor.is_superuser or actor.role in ['ADMIN', 'SUPER_ADMIN']:
             return value
 
-        # Business Admin: Can assign to employees in their business
+        # Business Admin: Can assign within their business scope
         if actor.role == 'BUSINESS_ADMIN':
-            if actor.business and (value.business == actor.business or (value.matrix and value.matrix.business == actor.business)):
+            biz = getattr(actor, 'effective_business', None) or actor.business
+            if biz and (value.business_id == biz.id or getattr(value.matrix, 'business_id', None) == biz.id):
                 return value
-            raise serializers.ValidationError(f"Cannot assign tasks outside your business ({actor.business.name if actor.business else 'None'}).")
+            raise serializers.ValidationError(f"Cannot assign tasks outside your business ({biz.name if biz else 'None'}).")
 
-        # Department Admin: Can assign to employees in their department
+        # Department Admin: Can assign within their department scope
         if actor.role == 'DEPT_HEAD':
-            if actor.department and (value.department == actor.department or (value.matrix and value.matrix.department == actor.department)):
+            dept = getattr(actor, 'effective_department', None) or actor.department
+            if dept and (value.department_id == dept.id or getattr(value.matrix, 'department_id', None) == dept.id):
                 return value
-            raise serializers.ValidationError(f"Cannot assign tasks outside your department ({actor.department.name if actor.department else 'None'}).")
+            raise serializers.ValidationError(f"Cannot assign tasks outside your department ({dept.name if dept else 'None'}).")
 
         # Supervisor: Can assign down their hierarchy or to themselves
         if actor.role == 'SUPERVISOR':
+            eff_matrix = getattr(actor, 'effective_matrix', None) or actor.matrix
             allowed_subordinates = get_subordinate_ids(actor, include_self=True)
-            if value.id not in allowed_subordinates and value.matrix != actor.incharge_matrix.first():
+            matrix_member_ids = list(eff_matrix.matrix_members.values_list('id', flat=True)) if eff_matrix else []
+            if value.id not in (set(allowed_subordinates) | set(matrix_member_ids)):
                 raise serializers.ValidationError(
-                    f"You cannot assign tasks to {value.username}. They are outside your matrix / subordinate line."
+                    f"You cannot assign tasks to {value.username}. They are outside your matrix branch."
                 )
             return value
 
@@ -178,6 +179,9 @@ class TaskCreateSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
+    assigned_to_matrix_title = serializers.SerializerMethodField()
+    assigned_to_business_code = serializers.CharField(source='assigned_to.business.code', read_only=True)
+    assigned_to_department_name = serializers.CharField(source='assigned_to.department.name', read_only=True)
     activity_logs = TaskActivityLogDetailSerializer(many=True, read_only=True)
     is_overdue = serializers.SerializerMethodField()
     is_committed_today = serializers.SerializerMethodField()
@@ -195,6 +199,9 @@ class TaskSerializer(serializers.ModelSerializer):
             'created_by_name',
             'assigned_to',
             'assigned_to_name',
+            'assigned_to_matrix_title',
+            'assigned_to_business_code',
+            'assigned_to_department_name',
             'due_date',
             'is_overdue',
             'is_committed_today',
@@ -217,6 +224,11 @@ class TaskSerializer(serializers.ModelSerializer):
             'is_committed_today',
         ]
 
+    def get_assigned_to_matrix_title(self, obj):
+        if obj.assigned_to and obj.assigned_to.matrix:
+            return str(obj.assigned_to.matrix)
+        return None
+
     def get_is_committed_today(self, obj):
         today = timezone.localtime(timezone.now()).date()
         return DailyWorkSelection.objects.filter(task=obj, date=today).exists()
@@ -225,6 +237,10 @@ class TaskSerializer(serializers.ModelSerializer):
         if not obj.due_date:
             return False
         if obj.status in ['VERIFIED', 'REJECTED', 'CANCELLED'] or obj.progress_percentage == 100:
+            return False
+
+        # Top Authorities (ADMIN, SUPER_ADMIN) are exempt from overdue locking
+        if obj.assigned_to and obj.assigned_to.role in ['ADMIN', 'SUPER_ADMIN']:
             return False
 
         now = timezone.localtime(timezone.now())
@@ -305,7 +321,7 @@ class DailyCommitmentSerializer(serializers.ModelSerializer):
 
 
 # ==========================================
-# 6. TASK DELAY REPORT SERIALIZER
+# 6. TASK DELAY REPORT / REASON SUBMISSION SERIALIZER
 # ==========================================
 class TaskDelayReportSerializer(serializers.ModelSerializer):
     submitted_by_name = serializers.CharField(source='submitted_by.username', read_only=True)
@@ -313,10 +329,10 @@ class TaskDelayReportSerializer(serializers.ModelSerializer):
     task_title = serializers.CharField(source='task.title', read_only=True)
 
     class Meta:
-        model = TaskDelayReport
+        model = TaskReasonSubmission
         fields = [
             'id', 'task', 'task_title', 'submitted_by', 'submitted_by_name',
-            'routed_to', 'routed_to_name', 'reason_category', 'explanation',
-            'expected_completion_date', 'created_at'
+            'routed_to', 'routed_to_name', 'form_type', 'reason_category',
+            'explanation', 'expected_due_date', 'status', 'created_at'
         ]
         read_only_fields = ['id', 'submitted_by', 'submitted_by_name', 'routed_to_name', 'task_title', 'created_at']

@@ -14,6 +14,7 @@ from .views import (
     SubmitCommitmentNoActionReasonView,
     IdleMonitoringStatusView,
     TriggerManualMidnightSweepView,
+    MatrixOverviewView
 )
 
 urlpatterns = [
@@ -30,4 +31,5 @@ urlpatterns = [
     path('<int:pk>/no-action-reason/', SubmitCommitmentNoActionReasonView.as_view(), name='task-no-action-reason'),
     path('idle-status/', IdleMonitoringStatusView.as_view(), name='task-idle-status'),
     path('run-midnight-sweep/', TriggerManualMidnightSweepView.as_view(), name='task-midnight-sweep'),
+    path('matrix-overview/', MatrixOverviewView.as_view(), name='task-matrix-overview'),
 ]

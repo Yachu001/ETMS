@@ -2,7 +2,7 @@
 
 from datetime import timedelta, datetime, date
 from django.utils import timezone
-from django.db import models
+from django.db import models, transaction
 from django.core.management import call_command
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
@@ -22,7 +22,7 @@ from .serializers import (
     DailyCommitmentSerializer,
     TaskActivityLogDetailSerializer,
 )
-from accounts.models import AttendanceRecord, Department
+from accounts.models import AttendanceRecord, Department, Business, BusinessDepartment
 from accounts.utils import get_subordinate_ids
 
 User = get_user_model()
@@ -34,6 +34,7 @@ def is_task_overdue_for_user(task, user=None):
     Evaluates whether a task is overdue based on date and user shift end time:
     - If task has no due_date -> False
     - If status is terminal (VERIFIED, REJECTED, CANCELLED) or progress == 100 -> False
+    - If user is ADMIN or SUPER_ADMIN -> False (Top Authority Exemption)
     - If today > due_date -> True (Past date is ALWAYS overdue)
     - If today == due_date:
         - If current_time >= user.shift_end_time -> True
@@ -43,6 +44,11 @@ def is_task_overdue_for_user(task, user=None):
     if not task.due_date:
         return False
     if task.status in ['VERIFIED', 'REJECTED', 'CANCELLED'] or task.progress_percentage == 100:
+        return False
+
+    # Top authorities are exempt from overdue locking
+    target_user = user or getattr(task, 'assigned_to', None)
+    if target_user and target_user.role in ['ADMIN', 'SUPER_ADMIN']:
         return False
 
     now = timezone.localtime(timezone.now())
@@ -59,7 +65,7 @@ def is_task_overdue_for_user(task, user=None):
     if today > task_due:
         return True
     elif today == task_due:
-        shift_end = getattr(user, 'shift_end_time', None)
+        shift_end = getattr(target_user, 'shift_end_time', None)
         if shift_end and current_time >= shift_end:
             return True
 
@@ -67,7 +73,7 @@ def is_task_overdue_for_user(task, user=None):
 
 
 # ==========================================
-# 1. TASK LIST & CREATE VIEW (SCOPED)
+# 1. TASK LIST & CREATE VIEW (SELF VS TEAM SCOPED)
 # ==========================================
 class TaskListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -77,36 +83,92 @@ class TaskListCreateView(generics.ListCreateAPIView):
             return TaskCreateSerializer
         return TaskSerializer
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
     def get_queryset(self):
         user = self.request.user
         queryset = Task.objects.filter(is_disabled=False).select_related(
-            'created_by', 'assigned_to'
+            'created_by', 'assigned_to', 'assigned_to__matrix', 'assigned_to__business', 'assigned_to__department'
         ).prefetch_related('activity_logs')
 
         target_user_id = self.request.query_params.get('user_id')
         if target_user_id:
             return queryset.filter(assigned_to_id=target_user_id).order_by('-created_at')
 
-        # Base Employee: only assigned or created, exclude terminal states
-        if user.role == 'EMPLOYEE':
+        view_mode = self.request.query_params.get('view_mode')
+        # Base Employee is always restricted to 'self' view
+        if user.role == 'EMPLOYEE' or view_mode == 'self':
             return queryset.filter(
                 Q(assigned_to=user) | Q(created_by=user)
             ).exclude(
-                status__in=['VERIFIED', 'REJECTED', 'CANCELLED']
+                status__in=['VERIFIED', 'REJECTED', 'CANCELLED'] if user.role == 'EMPLOYEE' else []
             ).order_by('-created_at')
 
-        # Supervisor: self + subordinate tree
+        # --- TEAM / ORG SCOPING ---
+        if user.role in ['ADMIN', 'SUPER_ADMIN'] or user.is_superuser:
+            return queryset.order_by('-created_at')
+
+        elif user.role == 'BUSINESS_ADMIN':
+            biz = getattr(user, 'effective_business', None) or user.business
+            if biz:
+                return queryset.filter(
+                    Q(assigned_to__business=biz) |
+                    Q(assigned_to__matrix__business=biz) |
+                    Q(created_by__business=biz) |
+                    Q(created_by=user) |
+                    Q(assigned_to=user)
+                ).order_by('-created_at')
+            return queryset.filter(Q(assigned_to=user) | Q(created_by=user)).order_by('-created_at')
+
+        elif user.role == 'DEPT_HEAD':
+            dept = getattr(user, 'effective_department', None) or user.department
+            if dept:
+                return queryset.filter(
+                    Q(assigned_to__department=dept) |
+                    Q(assigned_to__matrix__department=dept) |
+                    Q(created_by__department=dept) |
+                    Q(created_by=user) |
+                    Q(assigned_to=user)
+                ).order_by('-created_at')
+            return queryset.filter(Q(assigned_to=user) | Q(created_by=user)).order_by('-created_at')
+
         elif user.role == 'SUPERVISOR':
+            eff_matrix = getattr(user, 'effective_matrix', None) or user.matrix
             subordinate_ids = get_subordinate_ids(user, include_self=True)
+            matrix_member_ids = list(eff_matrix.matrix_members.values_list('id', flat=True)) if eff_matrix else []
+            scoped_user_ids = set(subordinate_ids + matrix_member_ids + [user.id])
             return queryset.filter(
-                Q(assigned_to_id__in=subordinate_ids) | Q(created_by=user)
+                Q(assigned_to_id__in=scoped_user_ids) | Q(created_by=user)
             ).order_by('-created_at')
 
-        # Admin / Executive
-        return queryset.order_by('-created_at')
+        return queryset.filter(Q(assigned_to=user) | Q(created_by=user)).order_by('-created_at')
 
     def perform_create(self, serializer):
         user = self.request.user
+        target_assignee = serializer.validated_data.get('assigned_to')
+
+        # Role-based Assignment Guardrails
+        if target_assignee and target_assignee != user:
+            if user.role == 'EMPLOYEE':
+                raise PermissionDenied("Base employees can only create self-assigned tasks.")
+            elif user.role == 'SUPERVISOR':
+                eff_matrix = getattr(user, 'effective_matrix', None) or user.matrix
+                subordinate_ids = get_subordinate_ids(user, include_self=True)
+                matrix_member_ids = list(eff_matrix.matrix_members.values_list('id', flat=True)) if eff_matrix else []
+                if target_assignee.id not in (set(subordinate_ids) | set(matrix_member_ids)):
+                    raise PermissionDenied("Supervisors can only assign tasks to their matrix branch members.")
+            elif user.role == 'BUSINESS_ADMIN':
+                biz = getattr(user, 'effective_business', None) or user.business
+                if biz and (target_assignee.business_id != biz.id and getattr(target_assignee.matrix, 'business_id', None) != biz.id):
+                    raise PermissionDenied("Business Admins cannot assign tasks outside their business.")
+            elif user.role == 'DEPT_HEAD':
+                dept = getattr(user, 'effective_department', None) or user.department
+                if dept and (target_assignee.department_id != dept.id and getattr(target_assignee.matrix, 'department_id', None) != dept.id):
+                    raise PermissionDenied("Department Heads cannot assign tasks outside their department.")
+
         task = serializer.save(created_by=user)
 
         if task.assigned_to == user:
@@ -124,7 +186,6 @@ class TaskListCreateView(generics.ListCreateAPIView):
                 remarks="Self-created task automatically accepted (Not Started)."
             )
         else:
-            # Issue assignment notification to recipient
             Notification.objects.create(
                 recipient=task.assigned_to,
                 sender=user,
@@ -135,7 +196,6 @@ class TaskListCreateView(generics.ListCreateAPIView):
                 data={'task_id': task.id, 'priority': task.priority}
             )
 
-        # UNIFIED SYSTEM AUDIT LOG: Task Created
         log_system_event(
             actor=user,
             action_type='TASK_CREATED',
@@ -222,7 +282,6 @@ class TaskActionView(APIView):
                 remarks="Task assignment accepted by employee."
             )
 
-            # UNIFIED SYSTEM AUDIT LOG: Task Accepted
             log_system_event(
                 actor=actor,
                 action_type='TASK_ACCEPTED',
@@ -258,17 +317,16 @@ class TaskActionView(APIView):
 
             reason_display = getattr(task, 'get_rejection_reason_display', lambda: task.rejection_reason)()
 
-            # Record in Unified Reason Review Queue
             submission = TaskReasonSubmission.objects.create(
                 task=task,
                 submitted_by=actor,
+                routed_to=task.created_by or actor.reports_to,
                 form_type='REJECTION',
                 reason_category=rejection_reason,
                 explanation=rejection_remarks,
                 status='PENDING_REVIEW'
             )
 
-            # Notification for Assigner
             if task.created_by and task.created_by != actor:
                 Notification.objects.create(
                     recipient=task.created_by,
@@ -280,7 +338,6 @@ class TaskActionView(APIView):
                     data={'task_id': task.id, 'submission_id': submission.id, 'reason': rejection_reason, 'remarks': rejection_remarks}
                 )
 
-            # Notification for Direct Reporting Lead (if distinct from assigner)
             if actor.reports_to and actor.reports_to != task.created_by:
                 Notification.objects.create(
                     recipient=actor.reports_to,
@@ -302,7 +359,6 @@ class TaskActionView(APIView):
                 remarks=f"Rejected: [{reason_display}] {rejection_remarks}"
             )
 
-            # UNIFIED SYSTEM AUDIT LOG: Task Rejected
             log_system_event(
                 actor=actor,
                 action_type='TASK_REJECTED',
@@ -319,7 +375,6 @@ class TaskActionView(APIView):
             return Response(TaskSerializer(task, context={'request': request}).data)
 
         # --- 3. UPDATE PROGRESS / STATUS / METADATA ---
-        # Update metadata if supervisor or manager provided it
         if is_authority:
             if 'due_date' in request.data:
                 task.due_date = request.data.get('due_date') or None
@@ -335,20 +390,20 @@ class TaskActionView(APIView):
         if new_status in ['CANCELLED', 'VERIFIED'] and not is_authority:
             return Response({'detail': 'Only supervisors or managers can cancel or verify tasks.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Automatic verification routing on 100% progress
+        # 100% Progress Verification Rule
         if new_progress == 100:
-            if task.requires_verification and not is_authority:
+            is_self_owned = (task.created_by_id == task.assigned_to_id == actor.id)
+            if task.requires_verification and not is_authority and not is_self_owned:
                 new_status = 'AWAITING_VERIFICATION'
             else:
                 new_status = 'VERIFIED'
-                if is_authority and not task.verified_by:
+                if not task.verified_by:
                     task.verified_by = actor
 
         task.status = new_status
         task.progress_percentage = new_progress
         task.save()
 
-        # Mark daily commitment active if updated today
         today = timezone.localtime(timezone.now()).date()
         DailyWorkSelection.objects.filter(
             user=actor, task=task, date=today
@@ -364,7 +419,6 @@ class TaskActionView(APIView):
             remarks=remarks or f"Progress updated to {new_progress}% ({new_status}) by {actor.username}"
         )
 
-        # UNIFIED SYSTEM AUDIT LOG: Task Action / Progress Update
         log_system_event(
             actor=actor,
             action_type=f"TASK_{action}",
@@ -437,7 +491,7 @@ class DailyCommitmentView(APIView):
             'is_on_duty': is_on_duty,
             'selected_task_ids': selected_task_ids,
             'selected_tasks': selected_tasks_payload,
-            'available_tasks': TaskSerializer(eligible_tasks, many=True).data,
+            'available_tasks': TaskSerializer(eligible_tasks, many=True, context={'request': request}).data,
             'is_idle': len(selected_task_ids) == 0
         })
 
@@ -502,15 +556,15 @@ class DailyCommitmentView(APIView):
 # 5. OVERDUE TASK DELAY REPORT & REASON HUB
 # ==========================================
 class SubmitTaskDelayReasonView(APIView):
-    """
-    Assignee submits an overdue delay explanation and proposed future due date.
-    Locks the submission button and alerts authorities.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk, is_disabled=False)
         user = request.user
+
+        # Top Authorities (ADMIN, SUPER_ADMIN) are exempt from delay form submissions
+        if user.role in ['ADMIN', 'SUPER_ADMIN']:
+            return Response({'detail': 'Admins and Super Admins are exempt from delay form submissions.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if task.assigned_to != user:
             return Response({'detail': 'Only the assigned employee can submit an overdue delay reason.'}, status=status.HTTP_403_FORBIDDEN)
@@ -533,9 +587,13 @@ class SubmitTaskDelayReasonView(APIView):
         task.overdue_reason_submitted = True
         task.save(update_fields=['overdue_reason_submitted'])
 
+        # Route to assigner or manager
+        routing_target = task.created_by if (task.created_by and task.created_by != user) else user.reports_to
+
         submission = TaskReasonSubmission.objects.create(
             task=task,
             submitted_by=user,
+            routed_to=routing_target,
             form_type='OVERDUE_DELAY',
             reason_category=reason_category,
             explanation=explanation,
@@ -543,7 +601,6 @@ class SubmitTaskDelayReasonView(APIView):
             status='PENDING_REVIEW'
         )
 
-        # Notify Assigner
         if task.created_by and task.created_by != user:
             Notification.objects.create(
                 recipient=task.created_by,
@@ -555,7 +612,6 @@ class SubmitTaskDelayReasonView(APIView):
                 data={'submission_id': submission.id, 'task_id': task.id, 'type': 'OVERDUE_DELAY'}
             )
 
-        # Notify Direct Manager
         if user.reports_to and user.reports_to != task.created_by:
             Notification.objects.create(
                 recipient=user.reports_to,
@@ -577,7 +633,6 @@ class SubmitTaskDelayReasonView(APIView):
             remarks=f"Overdue delay reason submitted: [{reason_category}] {explanation}. Expected: {parsed_date}"
         )
 
-        # UNIFIED SYSTEM AUDIT LOG: Overdue Delay Submitted
         log_system_event(
             actor=user,
             action_type='OVERDUE_DELAY_SUBMITTED',
@@ -598,10 +653,6 @@ class SubmitTaskDelayReasonView(APIView):
 
 
 class AuthorityReasonReviewView(APIView):
-    """
-    Lists pending and historical submissions for reporting authorities.
-    Allows managers to RESCHEDULE (set new due date, reset overdue lock) or CANCEL tasks.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -611,11 +662,28 @@ class AuthorityReasonReviewView(APIView):
 
         if user.is_superuser or user.role in ['ADMIN', 'SUPER_ADMIN']:
             qs = TaskReasonSubmission.objects.all()
+        elif user.role == 'BUSINESS_ADMIN':
+            biz = getattr(user, 'effective_business', None) or user.business
+            qs = TaskReasonSubmission.objects.filter(
+                Q(submitted_by__business=biz) |
+                Q(submitted_by__matrix__business=biz) |
+                Q(task__created_by=user) |
+                Q(routed_to=user)
+            )
+        elif user.role == 'DEPT_HEAD':
+            dept = getattr(user, 'effective_department', None) or user.department
+            qs = TaskReasonSubmission.objects.filter(
+                Q(submitted_by__department=dept) |
+                Q(submitted_by__matrix__department=dept) |
+                Q(task__created_by=user) |
+                Q(routed_to=user)
+            )
         else:
             subordinate_ids = get_subordinate_ids(user, include_self=False)
             qs = TaskReasonSubmission.objects.filter(
-                models.Q(submitted_by_id__in=subordinate_ids) |
-                models.Q(task__created_by=user)
+                Q(submitted_by_id__in=subordinate_ids) |
+                Q(task__created_by=user) |
+                Q(routed_to=user)
             )
 
         if form_type:
@@ -649,7 +717,7 @@ class AuthorityReasonReviewView(APIView):
 
     def post(self, request, pk):
         submission = get_object_or_404(TaskReasonSubmission, pk=pk)
-        action_type = request.data.get('action')  # 'RESCHEDULE', 'CANCEL', or 'VERIFY'
+        action_type = request.data.get('action')
         reviewer_remarks = request.data.get('remarks', '').strip()
         manager = request.user
         task = submission.task
@@ -657,8 +725,9 @@ class AuthorityReasonReviewView(APIView):
         subordinate_ids = get_subordinate_ids(manager, include_self=True)
         is_authorized = (
             manager.is_superuser or
-            manager.role in ['ADMIN', 'SUPER_ADMIN'] or
+            manager.role in ['ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'] or
             task.created_by == manager or
+            submission.routed_to == manager or
             submission.submitted_by_id in subordinate_ids
         )
         if not is_authorized:
@@ -679,7 +748,7 @@ class AuthorityReasonReviewView(APIView):
                 return Response({'detail': 'Invalid date format. Expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
             task.due_date = parsed_due_date
-            task.overdue_reason_submitted = False  # Reset lock
+            task.overdue_reason_submitted = False
             if task.status not in ['ACCEPTED', 'IN_PROGRESS', 'REQUEST_PENDING']:
                 task.status = 'IN_PROGRESS' if task.progress_percentage > 0 else 'ACCEPTED'
             task.save(update_fields=['due_date', 'overdue_reason_submitted', 'status'])
@@ -710,7 +779,6 @@ class AuthorityReasonReviewView(APIView):
                 remarks=f"Due date rescheduled to {parsed_due_date} by {manager.username}. Progress preserved ({task.progress_percentage}%). Remarks: {reviewer_remarks}"
             )
 
-            # UNIFIED SYSTEM AUDIT LOG: Reschedule Action
             log_system_event(
                 actor=manager,
                 action_type='REASON_RESCHEDULED',
@@ -755,7 +823,6 @@ class AuthorityReasonReviewView(APIView):
                 remarks=f"Task cancelled by {manager.username} following overdue delay review. Remarks: {reviewer_remarks}"
             )
 
-            # UNIFIED SYSTEM AUDIT LOG: Task Cancelled via Review
             log_system_event(
                 actor=manager,
                 action_type='REASON_CANCELLED',
@@ -776,7 +843,6 @@ class AuthorityReasonReviewView(APIView):
             submission.actioned_at = timezone.now()
             submission.save()
 
-            # UNIFIED SYSTEM AUDIT LOG: Reason Verified
             log_system_event(
                 actor=manager,
                 action_type='REASON_VERIFIED',
@@ -803,14 +869,30 @@ class SupervisorTeamOverviewView(APIView):
         today = timezone.localtime(timezone.now()).date()
 
         if user.role in ['ADMIN', 'SUPER_ADMIN'] or user.is_superuser:
-            subordinates = User.objects.exclude(id=user.id)
+            subordinates = User.objects.filter(is_active=True).exclude(id=user.id)
         elif user.role == 'SUPERVISOR':
+            eff_matrix = getattr(user, 'effective_matrix', None) or user.matrix
             subordinate_ids = get_subordinate_ids(user, include_self=False)
-            subordinates = User.objects.filter(id__in=subordinate_ids)
+            matrix_member_ids = list(eff_matrix.matrix_members.filter(is_active=True).values_list('id', flat=True)) if eff_matrix else []
+            combined_ids = set(subordinate_ids + matrix_member_ids)
+            subordinates = User.objects.filter(id__in=combined_ids, is_active=True, role='EMPLOYEE')
+        elif user.role in ['BUSINESS_ADMIN', 'DEPT_HEAD']:
+            biz = getattr(user, 'effective_business', None) or user.business
+            dept = getattr(user, 'effective_department', None) or user.department
+            if user.role == 'BUSINESS_ADMIN' and biz:
+                subordinates = User.objects.filter(
+                    Q(business=biz) | Q(matrix__business=biz), is_active=True
+                ).exclude(id=user.id)
+            elif user.role == 'DEPT_HEAD' and dept:
+                subordinates = User.objects.filter(
+                    Q(department=dept) | Q(matrix__department=dept), is_active=True
+                ).exclude(id=user.id)
+            else:
+                subordinates = User.objects.none()
         else:
             return Response({'detail': 'Forbidden.'}, status=status.HTTP_403_FORBIDDEN)
 
-        subordinates = subordinates.select_related('department', 'matrix__department')
+        subordinates = subordinates.select_related('department', 'matrix', 'matrix__department', 'business')
         subordinate_list = list(subordinates)
         subordinate_ids = [s.id for s in subordinate_list]
 
@@ -833,7 +915,6 @@ class SupervisorTeamOverviewView(APIView):
             is_present = emp.id in present_user_ids
             emp_commitments = commitments_by_user.get(emp.id, [])
             
-            # Active incomplete tasks committed today
             active_committed = [
                 c for c in emp_commitments 
                 if c.task.status in ACTIVE_WORK_STATUSES and c.task.progress_percentage < 100
@@ -852,8 +933,10 @@ class SupervisorTeamOverviewView(APIView):
             team_rows.append({
                 'id': emp.id,
                 'username': emp.username,
+                'name': emp.full_name or emp.username,
                 'designation': getattr(emp, 'designation', '') or 'Staff',
                 'department': primary_dept_name,
+                'matrix_title': str(emp.matrix) if emp.matrix else 'No Matrix',
                 'is_present': is_present,
                 'active_daily_tasks': committed_count,
                 'is_idle': is_idle,
@@ -877,7 +960,94 @@ class SupervisorTeamOverviewView(APIView):
 
 
 # ==========================================
-# 7. ADMIN DEPARTMENTS SUMMARY
+# 7. MATRIX & BUSINESS DRILL-DOWN OVERVIEW
+# ==========================================
+class MatrixOverviewView(APIView):
+    """
+    Overview for Business Admins & Dept Admins to view matrix branches,
+    rollup metrics (total users, present, committed, idle), and drill down into members.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        today = timezone.localtime(timezone.now()).date()
+
+        biz = getattr(user, 'effective_business', None) or user.business
+        dept = getattr(user, 'effective_department', None) or user.department
+
+        matrix_qs = BusinessDepartment.objects.filter(is_active=True).select_related(
+            'business', 'department', 'supervisor', 'created_by'
+        )
+
+        if user.role in ['ADMIN', 'SUPER_ADMIN'] or user.is_superuser:
+            pass
+        elif user.role == 'BUSINESS_ADMIN' and biz:
+            matrix_qs = matrix_qs.filter(business=biz)
+        elif user.role == 'DEPT_HEAD' and dept:
+            matrix_qs = matrix_qs.filter(department=dept)
+        else:
+            return Response({'detail': 'Forbidden.'}, status=status.HTTP_403_FORBIDDEN)
+
+        results = []
+        for m in matrix_qs:
+            members = list(m.matrix_members.filter(is_active=True))
+            member_ids = [mem.id for mem in members]
+            total_members = len(members)
+
+            present_ids = set(
+                AttendanceRecord.objects.filter(
+                    user_id__in=member_ids, date=today, is_present=True
+                ).values_list('user_id', flat=True)
+            )
+
+            committed_ids = set(
+                DailyWorkSelection.objects.filter(
+                    user_id__in=member_ids, date=today, task__status__in=ACTIVE_WORK_STATUSES
+                ).exclude(task__progress_percentage=100).values_list('user_id', flat=True)
+            )
+
+            present_count = len(present_ids)
+            working_count = len(committed_ids.intersection(present_ids))
+            idle_count = max(0, present_count - working_count)
+
+            lead = m.effective_incharge
+            supervisor_name = (lead.full_name or lead.username) if lead else 'Unassigned'
+            if lead and lead != m.supervisor:
+                supervisor_name += f" ({lead.get_role_display()} Fallback)"
+
+            results.append({
+                'id': m.id,
+                'name': m.name or f"{m.business.code} - {m.department.name}",
+                'code': m.code or f"{m.business.code}-{m.department.code}",
+                'business_id': m.business.id,
+                'business_name': m.business.name,
+                'department_id': m.department.id,
+                'department_name': m.department.name,
+                'supervisor_id': lead.id if lead else None,
+                'supervisor_name': supervisor_name,
+                'total_members': total_members,
+                'present_count': present_count,
+                'working_count': working_count,
+                'idle_count': idle_count,
+                'members': [
+                    {
+                        'id': mem.id,
+                        'name': mem.full_name or mem.username,
+                        'role': mem.role,
+                        'designation': mem.designation or 'Staff',
+                        'is_present': mem.id in present_ids,
+                        'is_idle': (mem.id in present_ids) and (mem.id not in committed_ids)
+                    }
+                    for mem in members
+                ]
+            })
+
+        return Response(results)
+
+
+# ==========================================
+# 8. ADMIN DEPARTMENTS SUMMARY
 # ==========================================
 class AdminDepartmentsSummaryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -933,7 +1103,7 @@ class AdminDepartmentsSummaryView(APIView):
 
 
 # ==========================================
-# 8. TASK AUDIT LOG LIST VIEW
+# 9. TASK AUDIT LOG LIST VIEW
 # ==========================================
 class TaskAuditLogListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -980,7 +1150,6 @@ class TaskAuditLogListView(APIView):
 
         queryset = queryset.order_by('-timestamp')
         
-        # Base user 100 limit rule
         if user.role == 'EMPLOYEE':
             queryset = queryset[:100]
 
@@ -989,15 +1158,15 @@ class TaskAuditLogListView(APIView):
 
 
 class SubmitCommitmentNoActionReasonView(APIView):
-    """
-    Assignee submits an explanation before shift-end for why a committed
-    task had no progress/status update today.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
         task = get_object_or_404(Task, pk=pk, is_disabled=False)
         user = request.user
+
+        # Top Authorities (ADMIN, SUPER_ADMIN) are exempt from inaction form submissions
+        if user.role in ['ADMIN', 'SUPER_ADMIN']:
+            return Response({'detail': 'Admins and Super Admins are exempt from daily inaction submissions.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if task.assigned_to != user:
             return Response({'detail': 'Only the assigned employee can submit a reason for this task.'}, status=status.HTTP_403_FORBIDDEN)
@@ -1009,23 +1178,22 @@ class SubmitCommitmentNoActionReasonView(APIView):
             return Response({'detail': 'Reason category and explanation are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         today = timezone.localtime(timezone.now()).date()
+        routing_target = task.created_by if (task.created_by and task.created_by != user) else user.reports_to
 
-        # Record in unified Reason Submission ledger
         submission = TaskReasonSubmission.objects.create(
             task=task,
             submitted_by=user,
+            routed_to=routing_target,
             form_type='NO_ACTION_TODAY',
             reason_category=reason_category,
             explanation=explanation,
             status='PENDING_REVIEW'
         )
 
-        # Flag selection so it is recognized as handled today
         DailyWorkSelection.objects.filter(
             user=user, task=task, date=today
         ).update(has_status_changed_today=True)
 
-        # Notify Assigner
         if task.created_by and task.created_by != user:
             Notification.objects.create(
                 recipient=task.created_by,
@@ -1037,7 +1205,6 @@ class SubmitCommitmentNoActionReasonView(APIView):
                 data={'submission_id': submission.id, 'task_id': task.id, 'type': 'NO_ACTION_TODAY'}
             )
 
-        # Notify Direct Reporting Manager
         if user.reports_to and user.reports_to != task.created_by:
             Notification.objects.create(
                 recipient=user.reports_to,
@@ -1059,7 +1226,6 @@ class SubmitCommitmentNoActionReasonView(APIView):
             remarks=f"Daily commit no-action explanation submitted: [{reason_category}] {explanation}"
         )
 
-        # UNIFIED SYSTEM AUDIT LOG: Committed Task No-Action Submitted
         log_system_event(
             actor=user,
             action_type='NO_ACTION_TODAY_SUBMITTED',
@@ -1080,11 +1246,6 @@ class SubmitCommitmentNoActionReasonView(APIView):
 
 
 class IdleMonitoringStatusView(APIView):
-    """
-    Evaluates self and team idle state. 
-    Triggers an in-app notification if an on-duty user remains idle for >= 5 minutes 
-    past their configured idle start time threshold.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -1093,11 +1254,9 @@ class IdleMonitoringStatusView(APIView):
         today = now.date()
         current_time = now.time()
 
-        # 1. Evaluate Current User Self-Idle State
         attendance = AttendanceRecord.objects.filter(user=user, date=today).first()
         is_present = attendance.is_present if attendance else False
 
-        # Query incomplete active tasks in today's commitment
         active_commitments_count = DailyWorkSelection.objects.filter(
             user=user,
             date=today,
@@ -1107,18 +1266,17 @@ class IdleMonitoringStatusView(APIView):
 
         is_self_idle = is_present and (active_commitments_count == 0)
 
-        # Self-idle timer threshold check
         self_timer_start = getattr(user, 'self_idle_timer_start', None)
         self_threshold_reached = False
         if self_timer_start and current_time >= self_timer_start:
             self_threshold_reached = True
 
-        # Generate self-idle notification if threshold reached and idle
-        if is_self_idle and self_threshold_reached:
+        # Authorities are exempt from self-idle alerts
+        if is_self_idle and self_threshold_reached and user.role not in ['ADMIN', 'SUPER_ADMIN']:
             recent_self_alert = Notification.objects.filter(
                 recipient=user,
                 notification_type='IDLE_ALERT',
-                created_at__gte=now - timedelta(minutes=30)  # De-duplicate alerts within 30 min window
+                created_at__gte=now - timedelta(minutes=30)
             ).exists()
 
             if not recent_self_alert:
@@ -1131,7 +1289,6 @@ class IdleMonitoringStatusView(APIView):
                     data={'type': 'SELF_IDLE'}
                 )
 
-        # 2. Evaluate Down-Tree Team Idle State (For Supervisors, Admins)
         team_idle_summary = []
         is_manager = user.role in ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD'] or user.is_superuser
 
@@ -1148,7 +1305,7 @@ class IdleMonitoringStatusView(APIView):
 
             for sub_id in present_subordinates:
                 sub_user = User.objects.filter(id=sub_id).first()
-                if not sub_user or not sub_user.is_active:
+                if not sub_user or not sub_user.is_active or sub_user.role in ['ADMIN', 'SUPER_ADMIN']:
                     continue
 
                 sub_active_count = DailyWorkSelection.objects.filter(
@@ -1165,7 +1322,6 @@ class IdleMonitoringStatusView(APIView):
                         'name': sub_user.full_name or sub_user.username,
                     })
 
-                    # If team idle threshold reached, notify supervisor
                     if team_threshold_reached:
                         recent_team_alert = Notification.objects.filter(
                             recipient=user,
@@ -1196,12 +1352,9 @@ class IdleMonitoringStatusView(APIView):
 
 
 # ========================================================
-# 11. Today's No-action & No Reason Submitted Auto Trigger 
+# 10. TODAY'S NO-ACTION & NO REASON AUTO TRIGGER SWEEP
 # ========================================================
 class TriggerManualMidnightSweepView(APIView):
-    """
-    Allows admins or background schedulers to execute the daily inaction sweep.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):

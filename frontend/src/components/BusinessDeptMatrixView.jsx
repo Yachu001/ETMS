@@ -1,3 +1,5 @@
+// frontend/src/components/BusinessDeptMatrixView.jsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
@@ -14,7 +16,8 @@ import {
   UserPlus,
   UserMinus,
   Edit2,
-  Shield
+  RefreshCw,
+  Search
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -33,6 +36,12 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   const [actionError, setActionError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Search & Filter state for Matrix branches
+  const [matrixSearch, setMatrixSearch] = useState('');
+  const [matrixBizFilter, setMatrixBizFilter] = useState('ALL');
+  const [matrixDeptFilter, setMatrixDeptFilter] = useState('ALL');
+  const [matrixStatusFilter, setMatrixStatusFilter] = useState('ALL');
+
   // Modals state
   const [showBizModal, setShowBizModal] = useState(false);
   const [editingBiz, setEditingBiz] = useState(null);
@@ -46,8 +55,8 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   const [loadingCandidates, setLoadingCandidates] = useState(false);
 
   // Form states
-  const [bizForm, setBizForm] = useState({ name: '', code: '', description: '', incharge: '' });
-  const [deptForm, setDeptForm] = useState({ name: '', code: '', parent: '', incharge: '' });
+  const [bizForm, setBizForm] = useState({ name: '', code: '', description: '', incharge_id: '' });
+  const [deptForm, setDeptForm] = useState({ name: '', code: '', parent: '', incharge_id: '' });
   const [matrixForm, setMatrixForm] = useState({ business: '', department: '', supervisor: '' });
 
   // Role permissions
@@ -75,9 +84,9 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
 
       if (canViewBizDeptTabs) {
         calls.push(api.get('/auth/businesses/'));
-        calls.push(api.get('/auth/departments/matrix/'));
+        calls.push(api.get('/auth/departments/'));
         calls.push(api.get('/auth/businesses/candidate-incharges/'));
-        calls.push(api.get('/auth/departments/matrix/candidate-incharges/'));
+        calls.push(api.get('/auth/departments/candidate-incharges/'));
       }
 
       const results = await Promise.all(calls);
@@ -102,19 +111,34 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
     fetchData();
   }, [userRole]);
 
+  // Dynamic candidate fetcher scoped by selected business and department
+  const fetchMatrixCandidates = async (bizId, deptId, matrixId = null) => {
+    try {
+      const params = new URLSearchParams();
+      if (bizId) params.append('business_id', bizId);
+      if (deptId) params.append('department_id', deptId);
+      if (matrixId) params.append('matrix_id', matrixId);
+
+      const res = await api.get(`/auth/business-departments/candidate-incharges/?${params.toString()}`);
+      setMatrixCandidateIncharges(res.data || []);
+    } catch (err) {
+      console.error('Error fetching scoped matrix candidates:', err);
+    }
+  };
+
   // ==========================================
   // MATRIX ACTIONS
   // ==========================================
-  const handleOpenCreateMatrix = () => {
+  const handleOpenCreateMatrix = async () => {
     setEditingMatrix(null);
     let initialBiz = '';
     let initialDept = '';
 
     if (isBusinessAdmin && currentUser?.business_id) {
-      initialBiz = currentUser.business_id;
+      initialBiz = String(currentUser.business_id);
     }
     if (isDeptHead && currentUser?.department_id) {
-      initialDept = currentUser.department_id;
+      initialDept = String(currentUser.department_id);
     }
 
     setMatrixForm({
@@ -122,17 +146,35 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
       department: initialDept,
       supervisor: ''
     });
+
+    await fetchMatrixCandidates(initialBiz, initialDept);
     setShowMatrixModal(true);
   };
 
-  const handleOpenEditMatrix = (matrix) => {
+  const handleOpenEditMatrix = async (matrix) => {
     setEditingMatrix(matrix);
+    const initialBiz = matrix.business ? String(matrix.business) : '';
+    const initialDept = matrix.department ? String(matrix.department) : '';
+    const initialSup = matrix.supervisor ? String(matrix.supervisor) : '';
+
     setMatrixForm({
-      business: matrix.business || '',
-      department: matrix.department || '',
-      supervisor: matrix.supervisor || ''
+      business: initialBiz,
+      department: initialDept,
+      supervisor: initialSup
     });
+
+    await fetchMatrixCandidates(initialBiz, initialDept, matrix.id);
     setShowMatrixModal(true);
+  };
+
+  const handleMatrixBusinessChange = (bizId) => {
+    setMatrixForm((prev) => ({ ...prev, business: bizId }));
+    fetchMatrixCandidates(bizId, matrixForm.department, editingMatrix?.id);
+  };
+
+  const handleMatrixDepartmentChange = (deptId) => {
+    setMatrixForm((prev) => ({ ...prev, department: deptId }));
+    fetchMatrixCandidates(matrixForm.business, deptId, editingMatrix?.id);
   };
 
   const handleSaveMatrix = async (e) => {
@@ -140,12 +182,10 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
     setActionError('');
     try {
       const payload = {
-        business: isBusinessAdmin && currentUser?.business_id ? currentUser.business_id : matrixForm.business,
-        department: isDeptHead && currentUser?.department_id ? currentUser.department_id : matrixForm.department,
+        business: isBusinessAdmin && currentUser?.business_id ? currentUser.business_id : parseInt(matrixForm.business, 10),
+        department: isDeptHead && currentUser?.department_id ? currentUser.department_id : parseInt(matrixForm.department, 10),
       };
-      if (matrixForm.supervisor) {
-        payload.supervisor = matrixForm.supervisor;
-      }
+      payload.supervisor = matrixForm.supervisor ? parseInt(matrixForm.supervisor, 10) : null;
 
       if (editingMatrix) {
         await api.patch(`/auth/business-departments/${editingMatrix.id}/`, payload);
@@ -198,11 +238,16 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
     }
   };
 
+  const handleOpenAssignSupervisor = async (matrix) => {
+    setAssigningMatrix(matrix);
+    await fetchMatrixCandidates(matrix.business, matrix.department, matrix.id);
+  };
+
   const handleAssignSupervisor = async (matrixId, supervisorId) => {
     setActionError('');
     try {
       await api.post(`/auth/business-departments/${matrixId}/assign-supervisor/`, {
-        supervisor_id: supervisorId || null
+        supervisor_id: supervisorId ? parseInt(supervisorId, 10) : null
       });
       triggerSuccess('Matrix incharge supervisor updated.');
       setAssigningMatrix(null);
@@ -250,55 +295,75 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   };
 
   // ==========================================
-  // BUSINESS ACTIONS (WITH INCHARGE)
+  // BUSINESS ACTIONS (ADMIN & SUPER ADMIN ONLY)
   // ==========================================
-  const handleOpenCreateBiz = () => {
+  const handleOpenCreateBiz = async () => {
+    if (!isAdminOrSuper) return;
     setEditingBiz(null);
-    setBizForm({ name: '', code: '', description: '', incharge: '' });
+    setBizForm({ name: '', code: '', description: '', incharge_id: '' });
+    try {
+      const res = await api.get('/auth/businesses/candidate-incharges/');
+      setBizCandidateIncharges(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
     setShowBizModal(true);
   };
 
-  const handleOpenEditBiz = (biz) => {
+  const handleOpenEditBiz = async (biz) => {
+    if (!isAdminOrSuper) return;
     setEditingBiz(biz);
     setBizForm({ 
       name: biz.name, 
       code: biz.code, 
       description: biz.description || '', 
-      incharge: biz.incharge || '' 
+      incharge_id: biz.incharge ? String(biz.incharge) : (biz.incharge_id ? String(biz.incharge_id) : '')
     });
+    try {
+      const res = await api.get(`/auth/businesses/candidate-incharges/?business_id=${biz.id}`);
+      setBizCandidateIncharges(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
     setShowBizModal(true);
   };
 
   const handleSaveBiz = async (e) => {
     e.preventDefault();
+    if (!isAdminOrSuper) return;
     setActionError('');
     try {
-      const payload = { ...bizForm };
-      if (!payload.incharge) delete payload.incharge;
+      const payload = {
+        name: bizForm.name.trim(),
+        description: bizForm.description || '',
+        incharge_id: bizForm.incharge_id ? parseInt(bizForm.incharge_id, 10) : null
+      };
 
-      if (editingBiz) {
-        await api.patch(`/auth/businesses/${editingBiz.id}/`, payload);
-        triggerSuccess('Business updated successfully.');
-      } else {
+      if (!editingBiz) {
+        payload.code = bizForm.code.trim().toUpperCase();
         await api.post('/auth/businesses/', payload);
         triggerSuccess('Business created successfully.');
+      } else {
+        await api.patch(`/auth/businesses/${editingBiz.id}/`, payload);
+        triggerSuccess('Business updated successfully.');
       }
       setShowBizModal(false);
       setEditingBiz(null);
       fetchData();
     } catch (err) {
-      setActionError(err.response?.data?.detail || 'Error saving business.');
+      setActionError(err.response?.data?.detail || err.response?.data?.name?.[0] || 'Error saving business.');
     }
   };
 
   const handleToggleBiz = async (biz) => {
+    if (!isAdminOrSuper) return;
     setActionError('');
     if (biz.is_active) {
-      if (biz.total_members > 0) {
-        setActionError(`Cannot disable Business "${biz.name}". Reassign its ${biz.total_members} active users first.`);
+      if (biz.active_users_count > 0) {
+        setActionError(`Cannot disable Business "${biz.name}". Reassign its ${biz.active_users_count} active users first.`);
         return;
       }
-      if (biz.active_departments_count > 0) {
+      if (biz.active_matrices_count > 0) {
         setActionError(`Cannot disable Business "${biz.name}". Disable or remove its active matrix branches first.`);
         return;
       }
@@ -314,12 +379,13 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   };
 
   const handleDeleteBiz = async (biz) => {
+    if (!isAdminOrSuper) return;
     setActionError('');
-    if (biz.total_members > 0) {
-      setActionError(`Cannot delete Business "${biz.name}". Reassign its ${biz.total_members} active users first.`);
+    if (biz.active_users_count > 0) {
+      setActionError(`Cannot delete Business "${biz.name}". Reassign its ${biz.active_users_count} active users first.`);
       return;
     }
-    if (biz.active_departments_count > 0) {
+    if (biz.active_matrices_count > 0) {
       setActionError(`Cannot delete Business "${biz.name}". Remove its active matrix branches first.`);
       return;
     }
@@ -337,57 +403,76 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   };
 
   // ==========================================
-  // DEPARTMENT ACTIONS (WITH INCHARGE)
+  // DEPARTMENT ACTIONS (ADMIN & SUPER ADMIN ONLY)
   // ==========================================
-  const handleOpenCreateDept = () => {
+  const handleOpenCreateDept = async () => {
+    if (!isAdminOrSuper) return;
     setEditingDept(null);
-    setDeptForm({ name: '', code: '', parent: '', incharge: '' });
+    setDeptForm({ name: '', code: '', parent: '', incharge_id: '' });
+    try {
+      const res = await api.get('/auth/departments/candidate-incharges/');
+      setDeptCandidateIncharges(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
     setShowDeptModal(true);
   };
 
-  const handleOpenEditDept = (dept) => {
+  const handleOpenEditDept = async (dept) => {
+    if (!isAdminOrSuper) return;
     setEditingDept(dept);
     setDeptForm({ 
       name: dept.name, 
       code: dept.code || '', 
-      parent: dept.parent || '', 
-      incharge: dept.incharge || '' 
+      parent: dept.parent ? String(dept.parent) : '', 
+      incharge_id: dept.incharge ? String(dept.incharge) : (dept.incharge_id ? String(dept.incharge_id) : '')
     });
+    try {
+      const res = await api.get(`/auth/departments/candidate-incharges/?department_id=${dept.id}`);
+      setDeptCandidateIncharges(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
     setShowDeptModal(true);
   };
 
   const handleSaveDept = async (e) => {
     e.preventDefault();
+    if (!isAdminOrSuper) return;
     setActionError('');
     try {
-      const payload = { ...deptForm };
-      if (!payload.parent) delete payload.parent;
-      if (!payload.incharge) delete payload.incharge;
+      const payload = {
+        name: deptForm.name.trim(),
+        parent: deptForm.parent ? parseInt(deptForm.parent, 10) : null,
+        incharge_id: deptForm.incharge_id ? parseInt(deptForm.incharge_id, 10) : null
+      };
 
-      if (editingDept) {
-        await api.patch(`/auth/departments/matrix/${editingDept.id}/`, payload);
-        triggerSuccess('Department updated successfully.');
-      } else {
-        await api.post('/auth/departments/matrix/', payload);
+      if (!editingDept) {
+        payload.code = deptForm.code.trim().toUpperCase();
+        await api.post('/auth/departments/', payload);
         triggerSuccess('Department created successfully.');
+      } else {
+        await api.patch(`/auth/departments/${editingDept.id}/`, payload);
+        triggerSuccess('Department updated successfully.');
       }
       setShowDeptModal(false);
       setEditingDept(null);
       fetchData();
     } catch (err) {
-      setActionError(err.response?.data?.detail || 'Error saving department.');
+      setActionError(err.response?.data?.detail || err.response?.data?.name?.[0] || 'Error saving department.');
     }
   };
 
   const handleToggleDept = async (dept) => {
+    if (!isAdminOrSuper) return;
     setActionError('');
-    if (dept.is_active && dept.total_members > 0) {
-      setActionError(`Cannot disable Department "${dept.name}". Reassign its ${dept.total_members} active members first.`);
+    if (dept.is_active && dept.active_users_count > 0) {
+      setActionError(`Cannot disable Department "${dept.name}". Reassign its ${dept.active_users_count} active members first.`);
       return;
     }
 
     try {
-      const res = await api.post(`/auth/departments/matrix/${dept.id}/toggle-active/`);
+      const res = await api.post(`/auth/departments/${dept.id}/toggle-active/`);
       triggerSuccess(res.data.message || 'Department status toggled.');
       fetchData();
     } catch (err) {
@@ -396,9 +481,10 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
   };
 
   const handleDeleteDept = async (dept) => {
+    if (!isAdminOrSuper) return;
     setActionError('');
-    if (dept.total_members > 0) {
-      setActionError(`Cannot delete Department "${dept.name}". Reassign its ${dept.total_members} active members first.`);
+    if (dept.active_users_count > 0) {
+      setActionError(`Cannot delete Department "${dept.name}". Reassign its ${dept.active_users_count} active members first.`);
       return;
     }
 
@@ -406,7 +492,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
     if (!window.confirm(confirmPrompt)) return;
 
     try {
-      await api.delete(`/auth/departments/matrix/${dept.id}/`);
+      await api.delete(`/auth/departments/${dept.id}/`);
       triggerSuccess('Department deleted successfully.');
       fetchData();
     } catch (err) {
@@ -421,32 +507,65 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
     return false;
   };
 
+  // Filtered Matrix List based on Toolbar Search & Scopes
+  const filteredMatrixList = matrixList.filter((m) => {
+    if (matrixBizFilter !== 'ALL' && String(m.business) !== String(matrixBizFilter)) return false;
+    if (matrixDeptFilter !== 'ALL' && String(m.department) !== String(matrixDeptFilter)) return false;
+    if (matrixStatusFilter !== 'ALL') {
+      const isAct = matrixStatusFilter === 'ACTIVE';
+      if (m.is_active !== isAct) return false;
+    }
+    if (matrixSearch.trim()) {
+      const q = matrixSearch.toLowerCase().trim();
+      const matchTitle = m.title?.toLowerCase().includes(q);
+      const matchBiz = m.business_name?.toLowerCase().includes(q);
+      const matchDept = m.department_name?.toLowerCase().includes(q);
+      const matchSup = m.supervisor_name?.toLowerCase().includes(q);
+      return matchTitle || matchBiz || matchDept || matchSup;
+    }
+    return true;
+  });
+
   return (
-    <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden max-w-7xl mx-auto">
       {/* Header */}
       <div className="p-4 sm:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-indigo-600" />
+            <Building2 className="w-5 h-5 text-blue-600" />
             Organization & Matrix Management
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             {isSupervisor
               ? 'Manage assigned matrix branch members and inspect team allocations.'
+              : isBusinessAdmin
+              ? `Configure and oversee cross-department matrix branches for ${currentUser?.business_name || 'your business'}.`
+              : isDeptHead
+              ? `Configure and oversee cross-business matrix branches for ${currentUser?.department_name || 'your department'}.`
               : 'Configure Businesses, Departments, and cross-matrix pairings with designated Incharges.'}
           </p>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="self-end sm:self-auto p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer">
-            <X className="w-5 h-5" />
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <button
+            type="button"
+            onClick={fetchData}
+            className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer"
+            title="Refresh Directory"
+          >
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-        )}
+          {onClose && (
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {actionError && (
-        <div className="m-4 sm:m-6 p-3 sm:p-4 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-3 text-rose-700 text-xs sm:text-sm">
+        <div className="m-4 sm:m-6 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-rose-700 text-xs sm:text-sm font-medium">
           <AlertCircle className="w-5 h-5 shrink-0 text-rose-500 mt-0.5" />
-          <div className="flex-1 font-medium">{actionError}</div>
+          <div className="flex-1">{actionError}</div>
           <button onClick={() => setActionError('')} className="text-rose-400 hover:text-rose-700 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
@@ -454,9 +573,9 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
       )}
 
       {successMsg && (
-        <div className="m-4 sm:m-6 p-3 sm:p-4 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-3 text-emerald-700 text-xs sm:text-sm">
+        <div className="m-4 sm:m-6 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3 text-emerald-700 text-xs sm:text-sm font-medium">
           <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-500 mt-0.5" />
-          <div className="flex-1 font-medium">{successMsg}</div>
+          <div className="flex-1">{successMsg}</div>
         </div>
       )}
 
@@ -466,7 +585,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
           <button
             onClick={() => setActiveTab('matrix')}
             className={`px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === 'matrix' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-slate-600 hover:bg-slate-100'
+              activeTab === 'matrix' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Layers className="w-4 h-4" />
@@ -478,7 +597,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
               <button
                 onClick={() => setActiveTab('businesses')}
                 className={`px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-                  activeTab === 'businesses' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-slate-600 hover:bg-slate-100'
+                  activeTab === 'businesses' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
                 <Building2 className="w-4 h-4" />
@@ -487,7 +606,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
               <button
                 onClick={() => setActiveTab('departments')}
                 className={`px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-                  activeTab === 'departments' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-slate-600 hover:bg-slate-100'
+                  activeTab === 'departments' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
                 <FolderTree className="w-4 h-4" />
@@ -497,12 +616,12 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
           )}
         </div>
 
-        {/* Action Button */}
+        {/* Action Button: Entity creation is strictly limited to Admins & Super Admins */}
         <div className="pb-3 md:pb-0">
           {activeTab === 'matrix' && canCreateMatrix && (
             <button
               onClick={handleOpenCreateMatrix}
-              className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+              className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Matrix Branch
@@ -511,7 +630,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
           {activeTab === 'businesses' && isAdminOrSuper && (
             <button
               onClick={handleOpenCreateBiz}
-              className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+              className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Business
@@ -520,7 +639,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
           {activeTab === 'departments' && isAdminOrSuper && (
             <button
               onClick={handleOpenCreateDept}
-              className="w-full sm:w-auto px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+              className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Department
@@ -532,46 +651,115 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
       {/* Main Tab Panels */}
       <div className="p-4 sm:p-6">
         {loading ? (
-          <div className="py-12 text-center text-slate-400 text-sm">Loading organizational records...</div>
+          <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+            <RefreshCw size={20} className="animate-spin text-blue-500" />
+            <span>Loading organizational records...</span>
+          </div>
         ) : (
           <>
             {/* TAB 1: MATRIX BRANCHES */}
             {activeTab === 'matrix' && (
-              <div>
-                {matrixList.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
-                    No Matrix branches available in your authorized scope.
+              <div className="space-y-4">
+                {/* Search & Filter Toolbar */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 flex-1">
+                    <div className="relative min-w-[200px] flex-1 sm:flex-none">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search matrix, business, supervisor..."
+                        value={matrixSearch}
+                        onChange={(e) => setMatrixSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <select
+                      value={matrixBizFilter}
+                      onChange={(e) => setMatrixBizFilter(e.target.value)}
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 outline-none"
+                    >
+                      <option value="ALL">All Businesses</option>
+                      {businesses.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={matrixDeptFilter}
+                      onChange={(e) => setMatrixDeptFilter(e.target.value)}
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 outline-none"
+                    >
+                      <option value="ALL">All Departments</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={matrixStatusFilter}
+                      onChange={(e) => setMatrixStatusFilter(e.target.value)}
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 outline-none"
+                    >
+                      <option value="ALL">All Statuses</option>
+                      <option value="ACTIVE">Active Only</option>
+                      <option value="DISABLED">Disabled Only</option>
+                    </select>
+
+                    {(matrixSearch || matrixBizFilter !== 'ALL' || matrixDeptFilter !== 'ALL' || matrixStatusFilter !== 'ALL') && (
+                      <button
+                        onClick={() => {
+                          setMatrixSearch('');
+                          setMatrixBizFilter('ALL');
+                          setMatrixDeptFilter('ALL');
+                          setMatrixStatusFilter('ALL');
+                        }}
+                        className="text-xs text-blue-600 hover:underline px-2 py-1 font-semibold cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    Showing {filteredMatrixList.length} of {matrixList.length} branches
+                  </span>
+                </div>
+
+                {filteredMatrixList.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
+                    No Matrix branches match the selected filters.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="w-full text-left text-sm text-slate-600">
-                      <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-xs uppercase tracking-wider">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs">
+                    <table className="w-full text-left text-xs text-slate-700">
+                      <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 text-[10px] uppercase tracking-wider">
                         <tr>
                           <th className="py-3 px-4">Matrix Branch</th>
                           <th className="py-3 px-4">Operating Business</th>
                           <th className="py-3 px-4">Functional Department</th>
                           <th className="py-3 px-4">Appointed Incharge</th>
                           <th className="py-3 px-4">Members</th>
-                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4 text-center">Status</th>
                           <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 text-xs">
-                        {matrixList.map((m) => (
-                          <tr key={m.id} className="hover:bg-slate-50/70">
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {filteredMatrixList.map((m) => (
+                          <tr key={m.id} className="hover:bg-slate-50/70 transition">
                             <td className="py-3 px-4 font-bold text-slate-900">
-                              {m.business_code} - {m.department_name}
+                              {m.title || `${m.business_code} - ${m.department_name}`}
                             </td>
                             <td className="py-3 px-4 text-slate-800">{m.business_name}</td>
                             <td className="py-3 px-4 text-slate-800">{m.department_name}</td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-2">
-                                <span className={`font-semibold ${m.supervisor ? 'text-indigo-700' : 'text-slate-400 italic'}`}>
+                                <span className={`font-semibold ${m.supervisor ? 'text-blue-700' : 'text-slate-500 italic'}`}>
                                   {m.supervisor_name || 'Unassigned Lead'}
                                 </span>
                                 {canManageInchargeForMatrix(m) && (
                                   <button
-                                    onClick={() => setAssigningMatrix(m)}
+                                    onClick={() => handleOpenAssignSupervisor(m)}
                                     className="text-[10px] text-blue-600 hover:underline font-semibold cursor-pointer"
                                   >
                                     Change
@@ -582,15 +770,15 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                             <td className="py-3 px-4">
                               <button
                                 onClick={() => handleOpenMembersModal(m)}
-                                className="inline-flex items-center gap-1 font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-full cursor-pointer transition"
+                                className="inline-flex items-center gap-1 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full cursor-pointer transition border border-blue-200"
                               >
-                                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                                <Users className="w-3.5 h-3.5 text-blue-600" />
                                 {m.assigned_members_count} members &bull; Manage
                               </button>
                             </td>
-                            <td className="py-3 px-4">
-                              <span className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${
-                                m.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            <td className="py-3 px-4 text-center">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                m.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
                               }`}>
                                 {m.is_active ? 'Active' : 'Disabled'}
                               </span>
@@ -600,7 +788,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                                 {canCreateMatrix && (
                                   <button
                                     onClick={() => handleOpenEditMatrix(m)}
-                                    className="p-1 text-slate-400 hover:text-indigo-600 rounded cursor-pointer"
+                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
                                     title="Edit Matrix Branch"
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
@@ -610,7 +798,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                                   <>
                                     <button
                                       onClick={() => handleToggleMatrix(m)}
-                                      className="p-1 text-slate-500 hover:text-indigo-600 rounded transition cursor-pointer"
+                                      className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                                       title={m.is_active ? 'Disable Branch (Must have 0 members)' : 'Enable Branch'}
                                     >
                                       {m.is_active ? (
@@ -621,7 +809,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                                     </button>
                                     <button
                                       onClick={() => handleDeleteMatrix(m)}
-                                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                                       title="Delete Matrix Branch (Must have 0 members)"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
@@ -639,137 +827,153 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
               </div>
             )}
 
-            {/* TAB 2: BUSINESSES */}
+            {/* TAB 2: BUSINESSES (READ-ONLY FOR BUSINESS ADMIN & DEPT HEAD) */}
             {activeTab === 'businesses' && canViewBizDeptTabs && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {businesses.map((biz) => (
-                  <div key={biz.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-xs transition">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                          {biz.code}
-                        </span>
-                        <h3 className="font-bold text-slate-900 text-sm mt-2">{biz.name}</h3>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        biz.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                      }`}>
-                        {biz.is_active ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 py-1.5 px-2.5 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500">Business Incharge:</span>
-                      <span className="text-[11px] font-bold text-indigo-700">
-                        {biz.incharge_name || 'Unassigned'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-500 mt-2 line-clamp-2">
-                      {biz.description || 'No description provided.'}
-                    </p>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-                      <span>{biz.total_members} Staff &bull; {biz.active_departments_count} Branches</span>
-                      {isAdminOrSuper && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleOpenEditBiz(biz)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
-                            title="Edit Business"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleBiz(biz)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
-                            title={biz.is_active ? 'Disable Business' : 'Enable Business'}
-                          >
-                            {biz.is_active ? (
-                              <ToggleRight className="w-5 h-5 text-emerald-600" />
-                            ) : (
-                              <ToggleLeft className="w-5 h-5 text-slate-400" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteBiz(biz)}
-                            className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                            title="Delete Business"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+              <div className="space-y-4">
+                {!isAdminOrSuper && (
+                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-blue-900 text-xs font-medium flex items-center gap-2">
+                    <Building2 size={16} className="text-blue-600 shrink-0" />
+                    <span>Business directory is in read-only mode. New businesses can only be added or modified by System Admins.</span>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {businesses.map((biz) => (
+                    <div key={biz.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-xs transition">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                            {biz.code}
+                          </span>
+                          <h3 className="font-bold text-slate-900 text-sm mt-2">{biz.name}</h3>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          biz.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {biz.is_active ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 py-1.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-medium">Business Incharge:</span>
+                        <span className="text-[11px] font-bold text-blue-700">
+                          {biz.incharge_name || 'Unassigned Lead'}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-500 mt-2 line-clamp-2">
+                        {biz.description || 'No description provided.'}
+                      </p>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                        <span>{biz.active_users_count || 0} Staff &bull; {biz.active_matrices_count || 0} Branches</span>
+                        {isAdminOrSuper && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleOpenEditBiz(biz)}
+                              className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                              title="Edit Business"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleBiz(biz)}
+                              className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                              title={biz.is_active ? 'Disable Business' : 'Enable Business'}
+                            >
+                              {biz.is_active ? (
+                                <ToggleRight className="w-5 h-5 text-emerald-600" />
+                              ) : (
+                                <ToggleLeft className="w-5 h-5 text-slate-400" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBiz(biz)}
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Delete Business"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* TAB 3: DEPARTMENTS */}
+            {/* TAB 3: DEPARTMENTS (READ-ONLY FOR BUSINESS ADMIN & DEPT HEAD) */}
             {activeTab === 'departments' && canViewBizDeptTabs && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {departments.map((dept) => (
-                  <div key={dept.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-xs transition">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        {dept.code && (
-                          <span className="text-[10px] font-bold uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                            {dept.code}
-                          </span>
-                        )}
-                        <h3 className="font-bold text-slate-900 text-sm mt-1">{dept.name}</h3>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        dept.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                      }`}>
-                        {dept.is_active ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 py-1.5 px-2.5 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500">Dept Incharge:</span>
-                      <span className="text-[11px] font-bold text-indigo-700">
-                        {dept.incharge_name || 'Unassigned'}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-                      <span className="flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-slate-400" /> {dept.total_members} Members
-                      </span>
-                      {isAdminOrSuper && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleOpenEditDept(dept)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
-                            title="Edit Department"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleToggleDept(dept)}
-                            className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
-                            title={dept.is_active ? 'Disable Department' : 'Enable Department'}
-                          >
-                            {dept.is_active ? (
-                              <ToggleRight className="w-5 h-5 text-emerald-600" />
-                            ) : (
-                              <ToggleLeft className="w-5 h-5 text-slate-400" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteDept(dept)}
-                            className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                            title="Delete Department"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+              <div className="space-y-4">
+                {!isAdminOrSuper && (
+                  <div className="p-3 bg-teal-50/60 border border-teal-200 rounded-xl text-teal-900 text-xs font-medium flex items-center gap-2">
+                    <FolderTree size={16} className="text-teal-600 shrink-0" />
+                    <span>Department directory is in read-only mode. New departments can only be added or modified by System Admins.</span>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {departments.map((dept) => (
+                    <div key={dept.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-xs transition">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          {dept.code && (
+                            <span className="text-[10px] font-bold uppercase text-teal-600 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                              {dept.code}
+                            </span>
+                          )}
+                          <h3 className="font-bold text-slate-900 text-sm mt-1">{dept.name}</h3>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          dept.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {dept.is_active ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 py-1.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-medium">Dept Incharge:</span>
+                        <span className="text-[11px] font-bold text-teal-700">
+                          {dept.incharge_name || 'Unassigned Lead'}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5 text-slate-400" /> {dept.active_users_count || 0} Staff &bull; {dept.active_matrices_count || 0} Branches
+                        </span>
+                        {isAdminOrSuper && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleOpenEditDept(dept)}
+                              className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                              title="Edit Department"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleDept(dept)}
+                              className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                              title={dept.is_active ? 'Disable Department' : 'Enable Department'}
+                            >
+                              {dept.is_active ? (
+                                <ToggleRight className="w-5 h-5 text-emerald-600" />
+                              ) : (
+                                <ToggleLeft className="w-5 h-5 text-slate-400" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDept(dept)}
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Delete Department"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </>
@@ -778,7 +982,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
 
       {/* MODAL: ASSIGN INCHARGE (SUPERVISOR) */}
       {assigningMatrix && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-sm">Assign Matrix Incharge</h3>
@@ -788,13 +992,13 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
             </div>
 
             <p className="text-xs text-slate-500">
-              Select supervisor to lead <strong>{assigningMatrix.business_code} - {assigningMatrix.department_name}</strong>. Base members in this branch will automatically report to this person.
+              Select incharge for <strong>{assigningMatrix.business_code} - {assigningMatrix.department_name}</strong>. Candidate list is strictly filtered according to your role boundaries.
             </p>
 
             <select
-              defaultValue={assigningMatrix.supervisor || ''}
+              defaultValue={assigningMatrix.supervisor ? String(assigningMatrix.supervisor) : ''}
               id="supervisor-incharge-select"
-              className="w-full text-xs border border-slate-200 rounded-lg p-2.5 font-medium outline-hidden focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-xs border border-slate-200 rounded-lg p-2.5 font-medium outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="">-- No Incharge (Unassigned) --</option>
               {matrixCandidateIncharges.map((c) => (
@@ -816,7 +1020,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   const val = document.getElementById('supervisor-incharge-select').value;
                   handleAssignSupervisor(assigningMatrix.id, val);
                 }}
-                className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer"
               >
                 Save Incharge
               </button>
@@ -827,8 +1031,8 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
 
       {/* MODAL: ADD / REMOVE MEMBERS */}
       {memberManagingMatrix && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">Manage Branch Members</h3>
@@ -851,8 +1055,8 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                     {memberManagingMatrix.members.map((u) => (
                       <div key={u.id} className="p-3 flex items-center justify-between hover:bg-slate-50">
                         <div>
-                          <div className="font-semibold text-slate-900">{u.full_name || u.username}</div>
-                          <div className="text-[10px] text-slate-400">{u.designation || 'Staff'}</div>
+                          <div className="font-semibold text-slate-900">{u.name || u.username}</div>
+                          <div className="text-[10px] text-slate-400">{u.designation || 'Staff'} &bull; {u.employee_code}</div>
                         </div>
                         <button
                           onClick={() => handleRemoveMember(u.id)}
@@ -890,7 +1094,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                         </div>
                         <button
                           onClick={() => handleAddMember(u.id)}
-                          className="flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-1 rounded-lg hover:bg-indigo-50 cursor-pointer"
+                          className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded-lg hover:bg-blue-50 cursor-pointer"
                         >
                           <UserPlus size={13} /> Add
                         </button>
@@ -915,7 +1119,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
 
       {/* MODAL: CREATE / EDIT MATRIX BRANCH */}
       {showMatrixModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-base">
@@ -936,8 +1140,8 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   <select
                     required
                     value={matrixForm.business}
-                    onChange={(e) => setMatrixForm({ ...matrixForm, business: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium"
+                    onChange={(e) => handleMatrixBusinessChange(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                   >
                     <option value="">-- Choose Business --</option>
                     {businesses.filter((b) => b.is_active).map((b) => (
@@ -957,8 +1161,8 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   <select
                     required
                     value={matrixForm.department}
-                    onChange={(e) => setMatrixForm({ ...matrixForm, department: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium"
+                    onChange={(e) => handleMatrixDepartmentChange(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                   >
                     <option value="">-- Choose Department --</option>
                     {departments.filter((d) => d.is_active).map((d) => (
@@ -969,11 +1173,11 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Appoint Incharge Supervisor (Optional)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Appoint Incharge (Optional)</label>
                 <select
                   value={matrixForm.supervisor}
                   onChange={(e) => setMatrixForm({ ...matrixForm, supervisor: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                 >
                   <option value="">-- Unassigned (Assign Later) --</option>
                   {matrixCandidateIncharges.map((c) => (
@@ -992,7 +1196,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer"
+                  className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer"
                 >
                   {editingMatrix ? 'Save Changes' : 'Create Matrix Branch'}
                 </button>
@@ -1002,9 +1206,9 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
         </div>
       )}
 
-      {/* MODAL: CREATE / EDIT BUSINESS (WITH INCHARGE) */}
-      {showBizModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+      {/* MODAL: CREATE / EDIT BUSINESS (ADMIN & SUPER ADMIN ONLY) */}
+      {showBizModal && isAdminOrSuper && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-base">
@@ -1022,29 +1226,31 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   required
                   value={bizForm.name}
                   onChange={(e) => setBizForm({ ...bizForm, name: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Business Code</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Business Code {editingBiz && <span className="text-[10px] text-slate-400 font-normal">(Immutable)</span>}
+                </label>
                 <input
                   type="text"
                   required
+                  disabled={Boolean(editingBiz)}
                   value={bizForm.code}
                   onChange={(e) => setBizForm({ ...bizForm, code: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono uppercase"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono uppercase disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
 
-              {/* Business Incharge Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Business Admin / Incharge (Optional)
+                  Business Admin Incharge (Optional)
                 </label>
                 <select
-                  value={bizForm.incharge}
-                  onChange={(e) => setBizForm({ ...bizForm, incharge: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium"
+                  value={bizForm.incharge_id}
+                  onChange={(e) => setBizForm({ ...bizForm, incharge_id: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                 >
                   <option value="">-- Default to Creator ({currentUser?.username}) --</option>
                   {bizCandidateIncharges.map((c) => (
@@ -1052,7 +1258,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   ))}
                 </select>
                 <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Only Business Admins and above can be appointed.
+                  1-to-1 constraint enforced: Only unassigned Business Admins and Admins appear.
                 </span>
               </div>
 
@@ -1062,14 +1268,14 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   rows={2}
                   value={bizForm.description}
                   onChange={(e) => setBizForm({ ...bizForm, description: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowBizModal(false)} className="px-3 py-1.5 text-xs text-slate-600 cursor-pointer">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg cursor-pointer">
+                <button type="submit" className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer">
                   {editingBiz ? 'Update Business' : 'Save Business'}
                 </button>
               </div>
@@ -1078,9 +1284,9 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
         </div>
       )}
 
-      {/* MODAL: CREATE / EDIT DEPARTMENT (WITH INCHARGE) */}
-      {showDeptModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+      {/* MODAL: CREATE / EDIT DEPARTMENT (ADMIN & SUPER ADMIN ONLY) */}
+      {showDeptModal && isAdminOrSuper && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-base">
@@ -1098,29 +1304,31 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   required
                   value={deptForm.name}
                   onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Department Code</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Department Code {editingDept && <span className="text-[10px] text-slate-400 font-normal">(Immutable)</span>}
+                </label>
                 <input
                   type="text"
                   required
+                  disabled={Boolean(editingDept)}
                   value={deptForm.code}
                   onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono uppercase"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono uppercase disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
 
-              {/* Department Incharge Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Department Head / Incharge (Optional)
+                  Department Head Incharge (Optional)
                 </label>
                 <select
-                  value={deptForm.incharge}
-                  onChange={(e) => setDeptForm({ ...deptForm, incharge: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium"
+                  value={deptForm.incharge_id}
+                  onChange={(e) => setDeptForm({ ...deptForm, incharge_id: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-500 font-medium"
                 >
                   <option value="">-- Default to Creator ({currentUser?.username}) --</option>
                   {deptCandidateIncharges.map((c) => (
@@ -1128,7 +1336,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                   ))}
                 </select>
                 <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Only Department Admins and above can be appointed.
+                  1-to-1 constraint enforced: Only unassigned Department Heads and Admins appear.
                 </span>
               </div>
 
@@ -1136,7 +1344,7 @@ export default function BusinessDeptMatrixView({ currentUser, userRole, onClose 
                 <button type="button" onClick={() => setShowDeptModal(false)} className="px-3 py-1.5 text-xs text-slate-600 cursor-pointer">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg cursor-pointer">
+                <button type="submit" className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer">
                   {editingDept ? 'Update Department' : 'Save Department'}
                 </button>
               </div>

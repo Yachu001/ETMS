@@ -16,6 +16,7 @@ import OrgTreeViewer from './components/OrgTreeViewer';
 import AuditLogViewer from './components/AuditLogViewer';
 import SupervisorTeamView from './components/SupervisorTeamView';
 import AdminDepartmentsView from './components/AdminDepartmentsView';
+import MatrixDrilldownView from './components/MatrixDrilldownView';
 import UserDetailView from './components/UserDetailView';
 import BusinessDeptMatrixView from './components/BusinessDeptMatrixView';
 import UserManagementView from './components/UserManagementView';
@@ -36,6 +37,7 @@ import {
   AlertCircle,
   ChevronRight,
   Users,
+  Layers
 } from 'lucide-react';
 
 export default function App() {
@@ -48,8 +50,8 @@ export default function App() {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Dual-view switch for Supervisors: 'team' vs 'self'
-  const [supervisorViewMode, setSupervisorViewMode] = useState('team');
+  // Dual-view switch for Supervisors, Business Admins, and Dept Admins: 'team' vs 'self'
+  const [viewMode, setViewMode] = useState('team');
 
   // Modals
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
@@ -89,11 +91,13 @@ export default function App() {
     }
   };
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (currentViewMode = viewMode) => {
     setLoadingTasks(true);
     try {
+      // Pass view_mode query parameter if applicable
+      const modeParam = currentUser?.role === 'EMPLOYEE' ? 'self' : currentViewMode;
       const [tasksRes, commitmentsRes] = await Promise.all([
-        api.get('/tasks/'),
+        api.get(`/tasks/?view_mode=${modeParam}`),
         api.get('/tasks/daily-commitments/'),
       ]);
       setTasks(tasksRes.data);
@@ -108,9 +112,9 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser) {
-      fetchTasks();
+      fetchTasks(viewMode);
     }
-  }, [currentUser]);
+  }, [currentUser, viewMode]);
 
   const handleLogout = () => {
     localStorage.clear();
@@ -131,17 +135,20 @@ export default function App() {
     );
   }
 
-  const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(currentUser.role);
-  const isAdminTier = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
-  
-  // Mandatory update: Allowed SUPERVISOR to view and manage their assigned matrix members
-  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(currentUser.role);
+  const role = currentUser.role;
+  const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(role);
+  const isAdminTier = ['ADMIN', 'SUPER_ADMIN'].includes(role);
+  const isMidTierManager = ['SUPERVISOR', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role);
+  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(role);
 
   // Summary Metrics for Landing Page
   const pendingTasks = tasks.filter((t) => t.status === 'REQUEST_PENDING');
   const inProgressTasks = tasks.filter((t) => ['ACCEPTED', 'IN_PROGRESS'].includes(t.status));
   const completedTasks = tasks.filter((t) => ['VERIFIED', 'AWAITING_VERIFICATION'].includes(t.status));
   const isEmployeeIdle = isOnDuty && todaysCommitments.length === 0;
+
+  // Decide if self cockpit view should render
+  const renderSelfCockpit = role === 'EMPLOYEE' || (isMidTierManager && viewMode === 'self');
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 flex font-sans text-slate-800">
@@ -188,53 +195,68 @@ export default function App() {
                 />
               ) : (
                 <>
+                  {/* ADMIN & SUPER ADMIN: GLOBAL ORG OVERVIEW */}
                   {isAdminTier && (
                     <AdminDepartmentsView
                       onSelectUser={(userId) => setDrilldownUserId(userId)}
                     />
                   )}
 
-                  {currentUser.role === 'SUPERVISOR' && (
+                  {/* MID-TIER MANAGERS: SELF VS TEAM TOGGLE BAR */}
+                  {isMidTierManager && (
                     <div className="space-y-4">
-                      <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200">
-                        <div className="text-xs font-semibold text-slate-700">Supervisor Perspective</div>
+                      <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
+                          <span className="font-mono text-[10px] uppercase font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                            {role.replace('_', ' ')} PERSPECTIVE
+                          </span>
+                        </div>
                         <div className="flex gap-2">
                           <button
-                            onClick={() => setSupervisorViewMode('team')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                              supervisorViewMode === 'team'
-                                ? 'bg-slate-900 text-white'
+                            onClick={() => setViewMode('team')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                              viewMode === 'team'
+                                ? 'bg-slate-900 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
                             <Users size={13} /> Team Oversight
                           </button>
                           <button
-                            onClick={() => setSupervisorViewMode('self')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                              supervisorViewMode === 'self'
-                                ? 'bg-slate-900 text-white'
+                            onClick={() => setViewMode('self')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                              viewMode === 'self'
+                                ? 'bg-slate-900 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
-                            <User size={13} /> My Personal Tasks
+                            <User size={13} /> My Personal Work
                           </button>
                         </div>
                       </div>
 
-                      {supervisorViewMode === 'team' && (
+                      {/* TEAM VIEW: SUPERVISOR TEAM ROSTER */}
+                      {viewMode === 'team' && role === 'SUPERVISOR' && (
                         <SupervisorTeamView onSelectUser={(id) => setDrilldownUserId(id)} />
+                      )}
+
+                      {/* TEAM VIEW: BUSINESS ADMIN & DEPT ADMIN MATRIX DRILL-DOWN */}
+                      {viewMode === 'team' && ['BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role) && (
+                        <MatrixDrilldownView 
+                          currentUser={currentUser} 
+                          onSelectUser={(id) => setDrilldownUserId(id)} 
+                        />
                       )}
                     </div>
                   )}
 
-                  {(currentUser.role === 'EMPLOYEE' ||
-                    (currentUser.role === 'SUPERVISOR' && supervisorViewMode === 'self')) && (
+                  {/* SELF VIEW COCKPIT (EMPLOYEE OR MANAGERS IN 'SELF' MODE) */}
+                  {renderSelfCockpit && (
                     <div className="space-y-6">
                       {/* Greeting Banner */}
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-wrap justify-between items-center gap-4">
                         <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center font-bold text-xl">
+                          <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center font-bold text-xl">
                             {(currentUser.username || 'U').substring(0, 2).toUpperCase()}
                           </div>
                           <div>
@@ -243,7 +265,7 @@ export default function App() {
                             </h2>
                             <p className="text-xs text-slate-500 mt-0.5">
                               {currentUser.designation || 'Staff Member'} &bull;{' '}
-                              {profileData?.department_name || profileData?.matrix_name || 'Organization Member'}
+                              {profileData?.matrix_title || profileData?.department_name || 'Organization Member'}
                             </p>
                           </div>
                         </div>
@@ -251,7 +273,7 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setActiveTab('tasks')}
-                            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs px-3.5 py-2 rounded-lg font-medium transition"
+                            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs px-3.5 py-2 rounded-xl font-semibold transition shadow-xs cursor-pointer"
                           >
                             Open Tasks Backlog <ChevronRight size={14} />
                           </button>
@@ -268,7 +290,7 @@ export default function App() {
 
                       {/* Capacity / Idle Notice */}
                       {isEmployeeIdle && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex items-center justify-between">
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <AlertCircle size={18} className="text-amber-600 shrink-0" />
                             <span>
@@ -277,7 +299,7 @@ export default function App() {
                           </div>
                           <button
                             onClick={() => setIsPlannerOpen(true)}
-                            className="text-xs font-bold bg-amber-200 hover:bg-amber-300 px-3 py-1 rounded-lg text-amber-900 transition shrink-0"
+                            className="text-xs font-bold bg-amber-200 hover:bg-amber-300 px-3 py-1.5 rounded-xl text-amber-900 transition shrink-0 cursor-pointer"
                           >
                             Open Planner
                           </button>
@@ -286,7 +308,7 @@ export default function App() {
 
                       {/* Status Metrics Grid */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
                           <div>
                             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                               Pending Approvals
@@ -299,7 +321,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
                           <div>
                             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                               In-Progress Tasks
@@ -312,7 +334,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
                           <div>
                             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                               Verified / Done
@@ -332,7 +354,7 @@ export default function App() {
                           <h3 className="text-sm font-bold text-slate-900">Task Backlog</h3>
                           <button
                             onClick={() => setActiveTab('tasks')}
-                            className="text-xs text-blue-600 hover:underline font-medium"
+                            className="text-xs text-indigo-600 hover:underline font-semibold"
                           >
                             View All ({tasks.length})
                           </button>
@@ -342,6 +364,7 @@ export default function App() {
                           onOpenActionModal={(t) => setSelectedTaskForAction(t)}
                           currentUser={currentUser}
                           onRefresh={() => fetchTasks()}
+                          viewMode={role === 'EMPLOYEE' ? 'self' : viewMode}
                         />
                       </div>
                     </div>
@@ -354,12 +377,35 @@ export default function App() {
           {/* TAB 2: TASKS BACKLOG TABLE */}
           {activeTab === 'tasks' && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Tasks & Work Management</h3>
                   <p className="text-xs text-slate-500">Filter, update progress %, or inspect activity logs</p>
                 </div>
+
+                {/* Perspective selector inside Tasks tab for managers */}
+                {isMidTierManager && (
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+                    <button
+                      onClick={() => setViewMode('team')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        viewMode === 'team' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Team Tasks
+                    </button>
+                    <button
+                      onClick={() => setViewMode('self')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        viewMode === 'self' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Self Tasks
+                    </button>
+                  </div>
+                )}
               </div>
+
               {loadingTasks ? (
                 <div className="text-center py-12 text-slate-400 text-xs">Loading task items...</div>
               ) : (
@@ -368,6 +414,7 @@ export default function App() {
                   onOpenActionModal={(t) => setSelectedTaskForAction(t)}
                   currentUser={currentUser}
                   onRefresh={() => fetchTasks()}
+                  viewMode={role === 'EMPLOYEE' ? 'self' : viewMode}
                 />
               )}
             </div>
