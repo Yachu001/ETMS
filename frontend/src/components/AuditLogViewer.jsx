@@ -1,3 +1,5 @@
+// frontend/src/components/AuditLogViewer.jsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   History, 
@@ -9,7 +11,9 @@ import {
   Layers,
   Building2,
   ShieldCheck,
-  CheckSquare
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -37,22 +41,65 @@ export default function AuditLogViewer({ currentUser }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModule, setSelectedModule] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [dateRange, setDateRange] = useState('all');
   const [selectedLogForDetails, setSelectedLogForDetails] = useState(null);
 
-  const isBaseEmployee = currentUser?.role === 'EMPLOYEE';
+  // Dynamic Days Range (Default 30 days, manual number input up to max available)
+  const [daysRange, setDaysRange] = useState(30);
+  const [maxAvailableDays, setMaxAvailableDays] = useState(365);
+  const [earliestLogDate, setEarliestLogDate] = useState(null);
 
-  const fetchAuditLogs = async () => {
+  // Pagination State (25 | 50 | 100 — Default: 100)
+  const [pageSize, setPageSize] = useState(100);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // 1. Fetch dynamic boundary metadata on mount
+  useEffect(() => {
+    api.get('/auth/audit-logs/meta/')
+      .then((res) => {
+        if (res.data) {
+          setMaxAvailableDays(res.data.max_available_days || 365);
+          setEarliestLogDate(res.data.earliest_log_date || null);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch audit log metadata fallback to defaults:', err);
+      });
+  }, []);
+
+  // 2. Fetch paginated and day-range filtered logs
+  const fetchAuditLogs = async (targetPage = currentPage) => {
     setLoading(true);
     try {
-      const params = {};
-      if (dateRange !== 'all') params.range = dateRange;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
-      if (selectedModule !== 'ALL') params.module = selectedModule;
+      const params = {
+        page: targetPage,
+        page_size: pageSize,
+        days: daysRange || 30
+      };
 
-      // Changed from /tasks/audit-logs/ to the unified global audit endpoint
+      if (statusFilter !== 'ALL') params.action_type = statusFilter;
+      if (selectedModule !== 'ALL') params.module = selectedModule;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+
       const res = await api.get('/auth/audit-logs/', { params });
-      setLogs(res.data || []);
+
+      // Handle paginated responses or direct array fallback
+      if (res.data && Array.isArray(res.data.results)) {
+        setLogs(res.data.results);
+        setTotalPages(res.data.num_pages || 1);
+        setCurrentPage(res.data.current_page || 1);
+        setTotalCount(res.data.count || res.data.results.length);
+      } else if (Array.isArray(res.data)) {
+        setLogs(res.data);
+        setTotalPages(1);
+        setCurrentPage(1);
+        setTotalCount(res.data.length);
+      } else {
+        setLogs([]);
+        setTotalPages(1);
+        setTotalCount(0);
+      }
     } catch (err) {
       console.error('Failed to load global audit logs:', err);
     } finally {
@@ -61,19 +108,21 @@ export default function AuditLogViewer({ currentUser }) {
   };
 
   useEffect(() => {
-    fetchAuditLogs();
-  }, [dateRange, statusFilter, selectedModule]);
+    setCurrentPage(1);
+    fetchAuditLogs(1);
+  }, [daysRange, pageSize, statusFilter, selectedModule]);
 
+  // Client-side quick filter for active search string if needed
   const filteredLogs = logs.filter((log) => {
+    if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    const matchesSearch =
+    return (
       (log.entity_name || log.task_title || '').toLowerCase().includes(q) ||
       (log.action_type || '').toLowerCase().includes(q) ||
       (log.actor_name || log.actor_username || '').toLowerCase().includes(q) ||
       (log.target_name || log.target_username || '').toLowerCase().includes(q) ||
-      (log.remarks || '').toLowerCase().includes(q);
-
-    return matchesSearch;
+      (log.remarks || '').toLowerCase().includes(q)
+    );
   });
 
   const formatDateTimeParts = (log) => {
@@ -134,7 +183,7 @@ export default function AuditLogViewer({ currentUser }) {
         </div>
 
         <button
-          onClick={fetchAuditLogs}
+          onClick={() => fetchAuditLogs(currentPage)}
           disabled={loading}
           className="self-start sm:self-auto px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
         >
@@ -164,8 +213,9 @@ export default function AuditLogViewer({ currentUser }) {
           })}
         </div>
 
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-100">
-          <div className="relative w-full md:w-80 self-start">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          {/* Search Box */}
+          <div className="relative w-full lg:w-80">
             <Search size={14} className="absolute left-3.5 top-3 text-slate-400" />
             <input
               type="text"
@@ -176,35 +226,62 @@ export default function AuditLogViewer({ currentUser }) {
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full md:w-auto justify-end self-end">
+          {/* Right Toolbar Controls: Task Status + Custom Days Input + Page Size */}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
             {selectedModule === 'TASK' && (
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-hidden"
+                className="text-xs border border-slate-200 rounded-xl px-2.5 py-2 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-hidden"
               >
-                <option value="ALL">All Status Actions</option>
-                <option value="REQUEST_PENDING">Request Pending</option>
-                <option value="ACCEPTED">Accepted</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="AWAITING_VERIFICATION">Awaiting Verification</option>
-                <option value="VERIFIED">Verified / Done</option>
-                <option value="CANCELLED">Cancelled</option>
-                <option value="REJECTED">Rejected</option>
+                <option value="ALL">All Task Actions</option>
+                <option value="TASK_CREATED">Task Created</option>
+                <option value="TASK_ACCEPTED">Task Accepted</option>
+                <option value="TASK_PROGRESS_UPDATED">Progress Updated</option>
+                <option value="TASK_SUBMITTED_FOR_VERIFICATION">Awaiting Verification</option>
+                <option value="TASK_VERIFIED">Task Verified</option>
+                <option value="TASK_CANCELLED">Task Cancelled</option>
+                <option value="TASK_REJECTED">Task Rejected</option>
               </select>
             )}
 
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-hidden"
-            >
-              <option value="all">All Dates</option>
-              <option value="today">Today</option>
-              <option value="last_7_days">Last 7 Days</option>
-              <option value="last_30_days">Last 30 Days</option>
-            </select>
+            {/* Custom Manual Days Input with dynamic helper hint */}
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                <span className="text-[11px] text-slate-500 font-medium">Last</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={maxAvailableDays}
+                  value={daysRange}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (val > maxAvailableDays) setDaysRange(maxAvailableDays);
+                    else setDaysRange(val);
+                  }}
+                  className="w-14 text-xs font-bold text-slate-800 outline-none text-center bg-slate-50 rounded border border-slate-200 py-0.5 focus:border-blue-500"
+                />
+                <span className="text-[11px] text-slate-500 font-medium">Days</span>
+              </div>
+              <span className="text-[9px] text-slate-400 mt-0.5 pl-1">
+                Max: <strong>{maxAvailableDays} days</strong> {earliestLogDate ? `(from ${earliestLogDate})` : ''}
+              </span>
+            </div>
+
+            {/* Pagination Size Selector (25 | 50 | 100) */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-2 shadow-2xs self-start">
+              <span className="text-[11px] text-slate-500 font-medium">Show:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-[11px] text-slate-500">entries</span>
+            </div>
           </div>
         </div>
       </div>
@@ -397,6 +474,34 @@ export default function AuditLogViewer({ currentUser }) {
             })
           )}
         </div>
+
+        {/* Pagination Controls Footer */}
+        {totalPages > 1 && (
+          <div className="p-3.5 bg-slate-50/80 border-t border-slate-200 flex items-center justify-between text-xs">
+            <span className="text-slate-500 font-medium">
+              Showing page <strong>{currentPage}</strong> of <strong>{totalPages}</strong> ({totalCount} total entries)
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentPage <= 1 || loading}
+                onClick={() => fetchAuditLogs(currentPage - 1)}
+                className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition disabled:opacity-40 cursor-pointer inline-flex items-center gap-1"
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages || loading}
+                onClick={() => fetchAuditLogs(currentPage + 1)}
+                className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition disabled:opacity-40 cursor-pointer inline-flex items-center gap-1"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Delta Inspector Modal */}

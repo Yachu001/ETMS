@@ -19,6 +19,7 @@ from .views import (
     MySubordinatesListView,
     OrgHierarchyTreeView,
     SystemAuditLogListView,
+    SystemAuditLogMetaView,  # <--- Added import
 )
 from .serializers import CustomTokenRefreshSerializer
 
@@ -60,8 +61,9 @@ urlpatterns = [
     path('org/my-subordinates/', MySubordinatesListView.as_view(), name='my-subordinates'),
     path('org/tree/', OrgHierarchyTreeView.as_view(), name='org-tree'),
 
-    # Audit Logs
+    # Audit Logs & Dynamic Days Metadata
     path('audit-logs/', SystemAuditLogListView.as_view(), name='system-audit-logs'),
+    path('audit-logs/meta/', SystemAuditLogMetaView.as_view(), name='system-audit-logs-meta'),  # <--- Added route
 
     # Router Endpoints
     path('', include(router.urls)),

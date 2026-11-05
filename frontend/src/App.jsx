@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from './api/axios';
 import Login from './pages/Login';
 
@@ -9,21 +9,19 @@ import TopNavbar from './components/common/TopNavbar';
 import Sidebar from './components/common/Sidebar';
 
 // Feature Views & Components
+import TaskModuleHub from './components/TaskModuleHub';
 import TaskTable from './components/TaskTable';
 import TodaysCommitmentsTable from './components/TodaysCommitmentsTable';
-import ReasonReviewsView from './components/ReasonReviewsView';
-import OrgTreeViewer from './components/OrgTreeViewer';
-import AuditLogViewer from './components/AuditLogViewer';
 import SupervisorTeamView from './components/SupervisorTeamView';
-import AdminDepartmentsView from './components/AdminDepartmentsView';
-import MatrixDrilldownView from './components/MatrixDrilldownView';
+import UserManagementView from './components/UserManagementView';
 import UserDetailView from './components/UserDetailView';
 import BusinessDeptMatrixView from './components/BusinessDeptMatrixView';
-import UserManagementView from './components/UserManagementView';
+import ReasonReviewsView from './components/ReasonReviewsView';
+import OrgTreeViewer from './components/OrgTreeViewer';
 import PersonalProfileView from './components/PersonalProfileView';
+import AuditLogViewer from './components/AuditLogViewer';
 
 // Modals
-import CreateUserModal from './components/CreateUserModal';
 import CreateTaskModal from './components/CreateTaskModal';
 import TaskActionModal from './components/TaskActionModal';
 import MorningPlannerModal from './components/MorningPlannerModal';
@@ -31,54 +29,76 @@ import MorningPlannerModal from './components/MorningPlannerModal';
 import {
   User,
   Clock,
-  Briefcase,
-  Building,
   CheckCircle2,
   AlertCircle,
   ChevronRight,
   Users,
-  Layers
+  Inbox,
+  CalendarClock
 } from 'lucide-react';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [profileData, setProfileData] = useState(null);
-  const [isOnDuty, setIsOnDuty] = useState(true);
-  const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'tasks' | 'matrix' | 'users' | 'reviews' | 'tree' | 'profile' | 'audit'
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [activeTab, setActiveTab] = useState('landing');
   const [tasks, setTasks] = useState([]);
   const [todaysCommitments, setTodaysCommitments] = useState([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isOnDuty, setIsOnDuty] = useState(true);
+  const [drilldownUserId, setDrilldownUserId] = useState(null);
 
-  // Dual-view switch for Supervisors, Business Admins, and Dept Admins: 'team' vs 'self'
-  const [viewMode, setViewMode] = useState('team');
+  // Responsive sidebar
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : false
+  );
 
-  // Modals
-  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
+  // Modals state
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [selectedTaskForAction, setSelectedTaskForAction] = useState(null);
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
 
-  // Drill-down inspection state
-  const [drilldownUserId, setDrilldownUserId] = useState(null);
+  // Role booleans
+  const role = currentUser?.role || 'EMPLOYEE';
+  const isBaseEmployee = role === 'EMPLOYEE';
+  const isAdminTier = ['ADMIN', 'SUPER_ADMIN'].includes(role) || currentUser?.is_superuser;
+  const isMidTierManager = ['SUPERVISOR', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role);
+  const isPrivileged = isMidTierManager || isAdminTier;
+  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(role);
 
-  // Load User & Profile
+  // Perspective Mode:
+  // - Admin & Super Admin: Strictly 'team' (no self view)
+  // - Base Employee: Strictly 'self' (no team view)
+  // - Mid-Tier (Supervisor, Bus Admin, Dept Head): Defaults to 'team', toggleable to 'self'
+  const [viewMode, setViewMode] = useState(isBaseEmployee ? 'self' : 'team');
+
+  // Enforce role perspective rules
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      const user = JSON.parse(savedUser);
-      setCurrentUser(user);
-      fetchProfile();
-      fetchAttendance();
+    if (isAdminTier && viewMode !== 'team') {
+      setViewMode('team');
+    } else if (isBaseEmployee && viewMode !== 'self') {
+      setViewMode('self');
     }
-  }, []);
+  }, [role, isAdminTier, isBaseEmployee, viewMode]);
 
+  // Load User Profile & Attendance
   const fetchProfile = async () => {
     try {
       const res = await api.get('/auth/me/');
-      setProfileData(res.data);
+      if (res.data) {
+        setCurrentUser(res.data);
+        localStorage.setItem('user', JSON.stringify(res.data));
+      }
     } catch (err) {
-      console.error('Failed to load profile details', err);
+      console.error('Failed to load profile details:', err);
+      if (err.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
@@ -91,35 +111,36 @@ export default function App() {
     }
   };
 
-  const fetchTasks = async (currentViewMode = viewMode) => {
-    setLoadingTasks(true);
+  // Fetch Tasks & Commitments
+  const fetchTasks = useCallback(async () => {
+    if (!currentUser) return;
     try {
-      // Pass view_mode query parameter if applicable
-      const modeParam = currentUser?.role === 'EMPLOYEE' ? 'self' : currentViewMode;
+      const targetMode = isBaseEmployee ? 'self' : (isAdminTier ? 'team' : viewMode);
       const [tasksRes, commitmentsRes] = await Promise.all([
-        api.get(`/tasks/?view_mode=${modeParam}`),
+        api.get(`/tasks/?view_mode=${targetMode}`),
         api.get('/tasks/daily-commitments/'),
       ]);
-      setTasks(tasksRes.data);
+      setTasks(tasksRes.data || []);
       setTodaysCommitments(commitmentsRes.data.selected_tasks || []);
-      setIsOnDuty(commitmentsRes.data.is_on_duty);
+      setIsOnDuty(Boolean(commitmentsRes.data.is_on_duty));
     } catch (err) {
-      console.error('Failed to load tasks or commitments', err);
-    } finally {
-      setLoadingTasks(false);
+      console.error('Failed to load tasks or commitments:', err);
     }
-  };
+  }, [currentUser, isBaseEmployee, isAdminTier, viewMode]);
 
   useEffect(() => {
     if (currentUser) {
-      fetchTasks(viewMode);
+      fetchProfile();
+      fetchAttendance();
+      fetchTasks();
     }
-  }, [currentUser, viewMode]);
+  }, [currentUser?.id, viewMode]);
 
   const handleLogout = () => {
     localStorage.clear();
     setCurrentUser(null);
-    setProfileData(null);
+    setTasks([]);
+    setTodaysCommitments([]);
     setDrilldownUserId(null);
   };
 
@@ -135,20 +156,29 @@ export default function App() {
     );
   }
 
-  const role = currentUser.role;
-  const isPrivileged = ['SUPERVISOR', 'ADMIN', 'SUPER_ADMIN', 'DEPT_HEAD', 'BUSINESS_ADMIN'].includes(role);
-  const isAdminTier = ['ADMIN', 'SUPER_ADMIN'].includes(role);
-  const isMidTierManager = ['SUPERVISOR', 'BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role);
-  const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(role);
+  // Core Self Metrics Calculation (for Self Cockpit)
+  const pendingAcceptRejectCount = tasks.filter(
+    (t) => t.status === 'REQUEST_PENDING' && t.assigned_to === currentUser.id
+  ).length;
 
-  // Summary Metrics for Landing Page
-  const pendingTasks = tasks.filter((t) => t.status === 'REQUEST_PENDING');
-  const inProgressTasks = tasks.filter((t) => ['ACCEPTED', 'IN_PROGRESS'].includes(t.status));
-  const completedTasks = tasks.filter((t) => ['VERIFIED', 'AWAITING_VERIFICATION'].includes(t.status));
-  const isEmployeeIdle = isOnDuty && todaysCommitments.length === 0;
+  const activeSelfTasks = tasks.filter(
+    (t) => (t.assigned_to === currentUser.id || !t.assigned_to) &&
+      ['ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'].includes(t.status) &&
+      t.progress_percentage < 100
+  );
 
-  // Decide if self cockpit view should render
-  const renderSelfCockpit = role === 'EMPLOYEE' || (isMidTierManager && viewMode === 'self');
+  const activeCommitsTodayCount = todaysCommitments.filter(
+    (t) => ['ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'].includes(t.status) && t.progress_percentage < 100
+  ).length;
+
+  const overdueTasksCount = tasks.filter(
+    (t) => t.assigned_to === currentUser.id &&
+      Boolean(t.is_overdue) &&
+      !['VERIFIED', 'REJECTED', 'CANCELLED'].includes(t.status)
+  ).length;
+
+  const isEmployeeIdle = isOnDuty && activeCommitsTodayCount === 0;
+  const renderSelfCockpit = isBaseEmployee || (isMidTierManager && viewMode === 'self');
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 flex font-sans text-slate-800">
@@ -161,7 +191,7 @@ export default function App() {
           setDrilldownUserId(null);
         }}
         onLogout={handleLogout}
-        pendingTasksCount={pendingTasks.length}
+        pendingTasksCount={pendingAcceptRejectCount}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
@@ -172,18 +202,23 @@ export default function App() {
         <TopNavbar
           currentUser={currentUser}
           isOnDuty={isOnDuty}
-          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          onOpenMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           onOpenPlanner={() => setIsPlannerOpen(true)}
           onOpenCreateTask={() => setIsCreateTaskOpen(true)}
           onAttendanceChanged={() => {
             fetchAttendance();
             fetchTasks();
           }}
+          onOpenNotifications={() => setActiveTab('notifications')}
+          unreadNotificationsCount={0}
         />
 
         {/* Scrollable Content Body */}
         <main className="p-4 md:p-8 max-w-7xl w-full mx-auto space-y-6 flex-1 overflow-y-auto">
-          {/* TAB 1: LANDING PAGE & SUMMARY */}
+          
+          {/* ======================================================== */}
+          {/* TAB 1: OVERVIEW LANDING & COCKPIT                        */}
+          {/* ======================================================== */}
           {activeTab === 'landing' && (
             <div className="space-y-6">
               {drilldownUserId ? (
@@ -195,109 +230,149 @@ export default function App() {
                 />
               ) : (
                 <>
-                  {/* ADMIN & SUPER ADMIN: GLOBAL ORG OVERVIEW */}
-                  {isAdminTier && (
-                    <AdminDepartmentsView
-                      onSelectUser={(userId) => setDrilldownUserId(userId)}
-                    />
-                  )}
-
-                  {/* MID-TIER MANAGERS: SELF VS TEAM TOGGLE BAR */}
+                  {/* Perspective Toggle Bar (for Supervisor, Business Admin, Dept Head) */}
                   {isMidTierManager && (
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
-                        <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
-                          <span className="font-mono text-[10px] uppercase font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-                            {role.replace('_', ' ')} PERSPECTIVE
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setViewMode('team')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                              viewMode === 'team'
-                                ? 'bg-slate-900 text-white shadow-2xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            <Users size={13} /> Team Oversight
-                          </button>
-                          <button
-                            onClick={() => setViewMode('self')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                              viewMode === 'self'
-                                ? 'bg-slate-900 text-white shadow-2xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            <User size={13} /> My Personal Work
-                          </button>
-                        </div>
+                    <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+                      <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded">
+                          {role.replace('_', ' ')} PERSPECTIVE
+                        </span>
                       </div>
-
-                      {/* TEAM VIEW: SUPERVISOR TEAM ROSTER */}
-                      {viewMode === 'team' && role === 'SUPERVISOR' && (
-                        <SupervisorTeamView onSelectUser={(id) => setDrilldownUserId(id)} />
-                      )}
-
-                      {/* TEAM VIEW: BUSINESS ADMIN & DEPT ADMIN MATRIX DRILL-DOWN */}
-                      {viewMode === 'team' && ['BUSINESS_ADMIN', 'DEPT_HEAD'].includes(role) && (
-                        <MatrixDrilldownView 
-                          currentUser={currentUser} 
-                          onSelectUser={(id) => setDrilldownUserId(id)} 
-                        />
-                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('team')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                            viewMode === 'team'
+                              ? 'bg-slate-900 text-white shadow-2xs font-bold'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <Users size={13} /> Team Oversight
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('self')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                            viewMode === 'self'
+                              ? 'bg-slate-900 text-white shadow-2xs font-bold'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <User size={13} /> My Personal Work
+                        </button>
+                      </div>
                     </div>
                   )}
 
-                  {/* SELF VIEW COCKPIT (EMPLOYEE OR MANAGERS IN 'SELF' MODE) */}
+                  {/* UNIFIED TEAM OVERVIEW (ALL ROLES IN TEAM VIEW) */}
+                  {viewMode === 'team' && isPrivileged && (
+                    <SupervisorTeamView 
+                      currentUser={currentUser}
+                      onSelectUser={(id) => setDrilldownUserId(id)} 
+                    />
+                  )}
+
+                  {/* BASE EMPLOYEE VIEW & MANAGERS SELF VIEW */}
                   {renderSelfCockpit && (
                     <div className="space-y-6">
-                      {/* Greeting Banner */}
-                      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-wrap justify-between items-center gap-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center font-bold text-xl">
-                            {(currentUser.username || 'U').substring(0, 2).toUpperCase()}
-                          </div>
+                      {/* 1. TOP 3 METRIC CARDS FOR SELF COCKPIT */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* Card 1: Pending Tasks for Accept or Reject */}
+                        <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
+                          pendingAcceptRejectCount > 0 
+                            ? 'bg-amber-50/70 border-amber-200' 
+                            : 'bg-white border-slate-200'
+                        }`}>
                           <div>
-                            <h2 className="text-xl font-bold text-slate-900">
-                              Welcome back, {currentUser.full_name || currentUser.username}!
-                            </h2>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {currentUser.designation || 'Staff Member'} &bull;{' '}
-                              {profileData?.matrix_title || profileData?.department_name || 'Organization Member'}
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                              Pending Accept / Reject
+                            </span>
+                            <div className={`text-2xl font-bold mt-1 ${
+                              pendingAcceptRejectCount > 0 ? 'text-amber-700 font-mono' : 'text-slate-900'
+                            }`}>
+                              {pendingAcceptRejectCount}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Incoming tasks awaiting action
                             </p>
+                          </div>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+                            pendingAcceptRejectCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-50 text-slate-400'
+                          }`}>
+                            <Inbox size={20} />
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setActiveTab('tasks')}
-                            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs px-3.5 py-2 rounded-xl font-semibold transition shadow-xs cursor-pointer"
-                          >
-                            Open Tasks Backlog <ChevronRight size={14} />
-                          </button>
+                        {/* Card 2: Today's Commits / Total Active Tasks */}
+                        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                          <div>
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                              Today Commits / Active
+                            </span>
+                            <div className="text-2xl font-bold text-slate-900 mt-1">
+                              <span className="text-blue-600 font-mono">{activeCommitsTodayCount}</span>
+                              <span className="text-slate-400 text-lg font-normal font-mono"> / {activeSelfTasks.length}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Committed today vs total backlog
+                            </p>
+                          </div>
+                          <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                            <CalendarClock size={20} />
+                          </div>
+                        </div>
+
+                        {/* Card 3: Overdue Tasks Count */}
+                        <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
+                          overdueTasksCount > 0 
+                            ? 'bg-rose-50/70 border-rose-200' 
+                            : 'bg-white border-slate-200'
+                        }`}>
+                          <div>
+                            <span className={`text-[11px] font-bold uppercase tracking-wider block ${
+                              overdueTasksCount > 0 ? 'text-rose-700' : 'text-slate-500'
+                            }`}>
+                              Overdue Tasks
+                            </span>
+                            <div className={`text-2xl font-bold mt-1 ${
+                              overdueTasksCount > 0 ? 'text-rose-700 font-mono' : 'text-slate-900'
+                            }`}>
+                              {overdueTasksCount}
+                            </div>
+                            <p className={`text-[11px] mt-0.5 ${
+                              overdueTasksCount > 0 ? 'text-rose-600/80' : 'text-slate-400'
+                            }`}>
+                              Personal tasks past deadline
+                            </p>
+                          </div>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+                            overdueTasksCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-50 text-slate-400'
+                          }`}>
+                            <Clock size={20} />
+                          </div>
                         </div>
                       </div>
 
-                      {/* Today's Commitments Table */}
+                      {/* 2. DAILY COMMITS PLANNER TABLE */}
                       <TodaysCommitmentsTable
                         commitments={todaysCommitments}
                         onOpenActionModal={(t) => setSelectedTaskForAction(t)}
-                        onRefresh={() => fetchTasks()}
+                        onRefresh={fetchTasks}
                         currentUser={currentUser}
                       />
 
-                      {/* Capacity / Idle Notice */}
+                      {/* Idle Notice when marked on-duty with 0 active committed tasks */}
                       {isEmployeeIdle && (
                         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <AlertCircle size={18} className="text-amber-600 shrink-0" />
                             <span>
-                              <strong>Capacity Notice:</strong> You currently have <strong>0 tasks committed</strong> for today. Add tasks from your backlog using the planner.
+                              <strong>Capacity Notice:</strong> You are marked On-Duty but currently have <strong>0 active tasks committed</strong> for today. Add tasks from your backlog using the planner.
                             </span>
                           </div>
                           <button
+                            type="button"
                             onClick={() => setIsPlannerOpen(true)}
                             className="text-xs font-bold bg-amber-200 hover:bg-amber-300 px-3 py-1.5 rounded-xl text-amber-900 transition shrink-0 cursor-pointer"
                           >
@@ -306,65 +381,26 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Status Metrics Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                          <div>
-                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                              Pending Approvals
-                            </span>
-                            <div className="text-2xl font-bold text-amber-600 mt-1">{pendingTasks.length}</div>
-                            <p className="text-[11px] text-slate-400 mt-1">Assignments waiting for review</p>
-                          </div>
-                          <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-                            <AlertCircle size={20} />
-                          </div>
-                        </div>
-
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                          <div>
-                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                              In-Progress Tasks
-                            </span>
-                            <div className="text-2xl font-bold text-blue-600 mt-1">{inProgressTasks.length}</div>
-                            <p className="text-[11px] text-slate-400 mt-1">Actively tracked items</p>
-                          </div>
-                          <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-                            <Clock size={20} />
-                          </div>
-                        </div>
-
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                          <div>
-                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                              Verified / Done
-                            </span>
-                            <div className="text-2xl font-bold text-emerald-600 mt-1">{completedTasks.length}</div>
-                            <p className="text-[11px] text-slate-400 mt-1">Completed assignments</p>
-                          </div>
-                          <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                            <CheckCircle2 size={20} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Recent Tasks Backlog Preview */}
+                      {/* 3. ACTIVE SELF TASKS BACKLOG (TOP 5 ITEMS) */}
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-bold text-slate-900">Task Backlog</h3>
+                          <h3 className="text-sm font-bold text-slate-900">
+                            Active Tasks Backlog (Recent 5)
+                          </h3>
                           <button
+                            type="button"
                             onClick={() => setActiveTab('tasks')}
-                            className="text-xs text-indigo-600 hover:underline font-semibold"
+                            className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1"
                           >
-                            View All ({tasks.length})
+                            View All ({tasks.length}) <ChevronRight size={13} />
                           </button>
                         </div>
                         <TaskTable
                           tasks={tasks.slice(0, 5)}
                           onOpenActionModal={(t) => setSelectedTaskForAction(t)}
                           currentUser={currentUser}
-                          onRefresh={() => fetchTasks()}
-                          viewMode={role === 'EMPLOYEE' ? 'self' : viewMode}
+                          onRefresh={fetchTasks}
+                          viewMode="self"
                         />
                       </div>
                     </div>
@@ -374,53 +410,20 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: TASKS BACKLOG TABLE */}
+          {/* ======================================================== */}
+          {/* TAB 2: TASKS BACKLOG & HIERARCHICAL WORKSPACE            */}
+          {/* ======================================================== */}
           {activeTab === 'tasks' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Tasks & Work Management</h3>
-                  <p className="text-xs text-slate-500">Filter, update progress %, or inspect activity logs</p>
-                </div>
-
-                {/* Perspective selector inside Tasks tab for managers */}
-                {isMidTierManager && (
-                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
-                    <button
-                      onClick={() => setViewMode('team')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                        viewMode === 'team' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Team Tasks
-                    </button>
-                    <button
-                      onClick={() => setViewMode('self')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                        viewMode === 'self' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Self Tasks
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {loadingTasks ? (
-                <div className="text-center py-12 text-slate-400 text-xs">Loading task items...</div>
-              ) : (
-                <TaskTable
-                  tasks={tasks}
-                  onOpenActionModal={(t) => setSelectedTaskForAction(t)}
-                  currentUser={currentUser}
-                  onRefresh={() => fetchTasks()}
-                  viewMode={role === 'EMPLOYEE' ? 'self' : viewMode}
-                />
-              )}
-            </div>
+            <TaskModuleHub
+              currentUser={currentUser}
+              tasks={tasks}
+              onOpenActionModal={(t) => setSelectedTaskForAction(t)}
+              onRefresh={fetchTasks}
+            />
           )}
 
-          {/* TAB 3: BUSINESS & ORG MATRIX */}
+          {/* ======================================================== */}
+          {/* TAB 3: BUSINESS & ORG MATRIX                             */}
           {activeTab === 'matrix' && canManageMatrix && (
             <div className="space-y-4">
               <BusinessDeptMatrixView
@@ -431,35 +434,52 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: USER MANAGEMENT CONSOLE */}
+          {/* ======================================================== */}
+          {/* TAB 4: USER MANAGEMENT CONSOLE                           */}
           {activeTab === 'users' && isPrivileged && (
             <div className="space-y-4">
-              <UserManagementView currentUser={currentUser} />
+              <UserManagementView 
+                currentUser={currentUser} 
+                onInspectUser={(userId) => {
+                  setDrilldownUserId(userId);
+                  setActiveTab('landing');
+                }}
+              />
             </div>
           )}
 
-          {/* TAB 5: REASON FORMS REVIEW HUB */}
+          {/* ======================================================== */}
+          {/* TAB 5: REASON FORMS REVIEW HUB                           */}
           {activeTab === 'reviews' && isPrivileged && (
             <ReasonReviewsView currentUser={currentUser} />
           )}
 
-          {/* TAB 6: HIERARCHY TREE */}
+          {/* ======================================================== */}
+          {/* TAB 6: HIERARCHY TREE                                    */}
           {activeTab === 'tree' && isPrivileged && (
-            <OrgTreeViewer
-              currentUser={currentUser}
-              onProfileUpdated={(updated) => setProfileData(updated)}
-            />
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Reporting Hierarchy Tree</h3>
+                <p className="text-xs text-slate-500">Downstream supervisor reporting structures</p>
+              </div>
+              <OrgTreeViewer />
+            </div>
           )}
 
-          {/* TAB 7: PERSONAL DETAILS */}
+          {/* ======================================================== */}
+          {/* TAB 7: PERSONAL PROFILE                                  */}
           {activeTab === 'profile' && (
             <PersonalProfileView
               currentUser={currentUser}
-              onProfileUpdated={(updated) => setProfileData(updated)}
+              onProfileUpdated={(updated) => {
+                setCurrentUser(updated);
+                localStorage.setItem('user', JSON.stringify(updated));
+              }}
             />
           )}
 
-          {/* TAB 8: AUDIT LOGS */}
+          {/* ======================================================== */}
+          {/* TAB 8: AUDIT LOGS                                        */}
           {activeTab === 'audit' && (
             <AuditLogViewer currentUser={currentUser} />
           )}
@@ -467,16 +487,10 @@ export default function App() {
       </div>
 
       {/* ===================== MODALS ===================== */}
-      <CreateUserModal
-        isOpen={isCreateUserOpen}
-        onClose={() => setIsCreateUserOpen(false)}
-        currentUserRole={currentUser.role}
-      />
-
       <CreateTaskModal
         isOpen={isCreateTaskOpen}
         onClose={() => setIsCreateTaskOpen(false)}
-        onTaskCreated={() => fetchTasks()}
+        onTaskCreated={fetchTasks}
         currentUser={currentUser}
       />
 
@@ -484,14 +498,15 @@ export default function App() {
         isOpen={Boolean(selectedTaskForAction)}
         onClose={() => setSelectedTaskForAction(null)}
         task={selectedTaskForAction}
-        onActionSuccess={() => fetchTasks()}
+        onActionSuccess={fetchTasks}
         currentUser={currentUser}
       />
 
       <MorningPlannerModal
         isOpen={isPlannerOpen}
         onClose={() => setIsPlannerOpen(false)}
-        onCommitmentsUpdated={() => fetchTasks()}
+        onCommitmentSaved={fetchTasks}
+        currentUser={currentUser}
       />
     </div>
   );

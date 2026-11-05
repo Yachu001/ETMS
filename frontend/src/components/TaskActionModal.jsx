@@ -1,3 +1,5 @@
+// frontend/src/components/TaskActionModal.jsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
@@ -14,13 +16,15 @@ import api from '../api/axios';
 export default function TaskActionModal({ isOpen, onClose, task, onActionSuccess, currentUser }) {
   if (!isOpen || !task) return null;
 
-  const isAuthority = [
-    'SUPERVISOR', 
-    'DEPT_HEAD', 
-    'BUSINESS_ADMIN', 
-    'ADMIN', 
-    'SUPER_ADMIN'
-  ].includes(currentUser?.role) || task.created_by === currentUser?.id;
+  // Strict check: Is this task assigned to the current user?
+  const isSelfTask = task?.assigned_to === currentUser?.id;
+
+  // Authority privileges apply ONLY to tasks assigned to subordinates
+  const isAuthorityOnSubordinate = !isSelfTask && (
+    ['SUPERVISOR', 'DEPT_HEAD', 'BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || 
+    currentUser?.is_superuser ||
+    task.created_by === currentUser?.id
+  );
 
   const [progress, setProgress] = useState(task.progress_percentage || 0);
   const [status, setStatus] = useState(task.status || 'IN_PROGRESS');
@@ -40,7 +44,7 @@ export default function TaskActionModal({ isOpen, onClose, task, onActionSuccess
     setProgress(val);
 
     if (val === 100) {
-      if (task.requires_verification) {
+      if (task.requires_verification || isSelfTask) {
         setStatus('AWAITING_VERIFICATION');
       } else {
         setStatus('VERIFIED');
@@ -100,6 +104,11 @@ export default function TaskActionModal({ isOpen, onClose, task, onActionSuccess
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
               Assigned to: <strong className="text-slate-600">{task.assigned_to_name || 'Self'}</strong>
+              {isSelfTask && (
+                <span className="ml-1.5 px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+                  Personal Task (Base User Permissions)
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -158,13 +167,14 @@ export default function TaskActionModal({ isOpen, onClose, task, onActionSuccess
               onChange={(e) => handleStatusChange(e.target.value)}
               className="w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-hidden font-medium bg-white"
             >
+              {/* Base User Options: Always Available */}
               <option value="ACCEPTED">ACCEPTED — Queued / Not Started</option>
               <option value="IN_PROGRESS">IN_PROGRESS — Actively Working</option>
               <option value="ON_HOLD">ON_HOLD — Blocked / Paused</option>
               <option value="AWAITING_VERIFICATION">AWAITING_VERIFICATION — Submitted for Review</option>
 
-              {/* Statuses restricted to Authorities / Assigner */}
-              {isAuthority && (
+              {/* Management/Authority Options: Only on Subordinates' Tasks */}
+              {isAuthorityOnSubordinate && (
                 <>
                   <option value="VERIFIED">VERIFIED — Approved & Closed</option>
                   <option value="CANCELLED">CANCELLED — Void / Terminated</option>
@@ -179,7 +189,7 @@ export default function TaskActionModal({ isOpen, onClose, task, onActionSuccess
             <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl text-purple-900 flex items-start gap-2">
               <ShieldCheck size={16} className="text-purple-600 shrink-0 mt-0.5" />
               <div className="text-[11px]">
-                <strong>Verification Required:</strong> When set to 100%, this task transitions to <strong>AWAITING_VERIFICATION</strong> and will await final sign-off by supervisory management[cite: 4, 15].
+                <strong>Verification Required:</strong> When set to 100%, this task transitions to <strong>AWAITING_VERIFICATION</strong> and will await final sign-off by supervisory management[cite: 7].
               </div>
             </div>
           )}

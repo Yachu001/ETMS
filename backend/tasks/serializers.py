@@ -79,6 +79,8 @@ class TaskActivityLogDetailSerializer(serializers.ModelSerializer):
 # 2. TASK CREATION SERIALIZER
 # ==========================================
 class TaskCreateSerializer(serializers.ModelSerializer):
+    requires_verification = serializers.BooleanField(default=True, required=False)
+
     class Meta:
         model = Task
         fields = [
@@ -110,25 +112,21 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         if not actor or not actor.is_authenticated:
             return value
 
-        # Super Admin and Admin can assign globally
         if actor.is_superuser or actor.role in ['ADMIN', 'SUPER_ADMIN']:
             return value
 
-        # Business Admin: Can assign within their business scope
         if actor.role == 'BUSINESS_ADMIN':
             biz = getattr(actor, 'effective_business', None) or actor.business
             if biz and (value.business_id == biz.id or getattr(value.matrix, 'business_id', None) == biz.id):
                 return value
             raise serializers.ValidationError(f"Cannot assign tasks outside your business ({biz.name if biz else 'None'}).")
 
-        # Department Admin: Can assign within their department scope
         if actor.role == 'DEPT_HEAD':
             dept = getattr(actor, 'effective_department', None) or actor.department
             if dept and (value.department_id == dept.id or getattr(value.matrix, 'department_id', None) == dept.id):
                 return value
             raise serializers.ValidationError(f"Cannot assign tasks outside your department ({dept.name if dept else 'None'}).")
 
-        # Supervisor: Can assign down their hierarchy or to themselves
         if actor.role == 'SUPERVISOR':
             eff_matrix = getattr(actor, 'effective_matrix', None) or actor.matrix
             allowed_subordinates = get_subordinate_ids(actor, include_self=True)
@@ -139,7 +137,6 @@ class TaskCreateSerializer(serializers.ModelSerializer):
                 )
             return value
 
-        # Standard Base Employees can only create tasks for themselves
         if actor.id != value.id:
             raise serializers.ValidationError(
                 "Standard employees are only authorized to create tasks assigned to themselves."
@@ -151,6 +148,10 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         validated_data['created_by'] = user
         assigned_to = validated_data.get('assigned_to')
+
+        # Guarantee requires_verification is True if omitted
+        if 'requires_verification' not in validated_data:
+            validated_data['requires_verification'] = True
 
         if assigned_to == user:
             validated_data['status'] = 'ACCEPTED'
@@ -209,6 +210,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'verified_by',
             'rejection_reason',
             'rejection_remarks',
+            'overdue_reason_submitted',
             'is_disabled',
             'created_at',
             'updated_at',
@@ -225,7 +227,7 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
     def get_assigned_to_matrix_title(self, obj):
-        if obj.assigned_to and obj.assigned_to.matrix:
+        if obj.assigned_to and getattr(obj.assigned_to, 'matrix', None):
             return str(obj.assigned_to.matrix)
         return None
 
@@ -239,7 +241,6 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.status in ['VERIFIED', 'REJECTED', 'CANCELLED'] or obj.progress_percentage == 100:
             return False
 
-        # Top Authorities (ADMIN, SUPER_ADMIN) are exempt from overdue locking
         if obj.assigned_to and obj.assigned_to.role in ['ADMIN', 'SUPER_ADMIN']:
             return False
 
@@ -296,6 +297,7 @@ class DailyCommitmentSerializer(serializers.ModelSerializer):
     priority = serializers.CharField(source='task.priority', read_only=True)
     status = serializers.CharField(source='task.status', read_only=True)
     progress_percentage = serializers.IntegerField(source='task.progress_percentage', read_only=True)
+    requires_verification = serializers.BooleanField(source='task.requires_verification', read_only=True)
     created_by_name = serializers.CharField(source='task.created_by.username', read_only=True)
     assigned_to_name = serializers.CharField(source='task.assigned_to.username', read_only=True)
     created_at = serializers.DateTimeField(source='task.created_at', format='%Y-%m-%dT%H:%M:%S', read_only=True)
@@ -310,6 +312,7 @@ class DailyCommitmentSerializer(serializers.ModelSerializer):
             'priority',
             'status',
             'progress_percentage',
+            'requires_verification',
             'created_by_name',
             'assigned_to_name',
             'created_at',
@@ -321,7 +324,7 @@ class DailyCommitmentSerializer(serializers.ModelSerializer):
 
 
 # ==========================================
-# 6. TASK DELAY REPORT / REASON SUBMISSION SERIALIZER
+# 6. TASK REASON SUBMISSION SERIALIZER
 # ==========================================
 class TaskDelayReportSerializer(serializers.ModelSerializer):
     submitted_by_name = serializers.CharField(source='submitted_by.username', read_only=True)

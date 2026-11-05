@@ -1,18 +1,20 @@
+// frontend/src/components/MatrixDrilldownView.jsx
+
 import React, { useState, useEffect } from 'react';
 import { 
   Layers, 
   Users, 
-  Building2, 
-  Building, 
+  UserCheck, 
   CheckCircle2, 
   Clock, 
   AlertTriangle, 
   ChevronRight, 
-  ChevronDown, 
-  ChevronUp, 
-  UserCheck, 
+  ArrowLeft,
   RefreshCw,
-  Search
+  Search,
+  Eye,
+  ShieldAlert,
+  Building2
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -21,7 +23,7 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedMatrixId, setExpandedMatrixId] = useState(null);
+  const [selectedMatrix, setSelectedMatrix] = useState(null);
 
   const fetchMatrixData = async () => {
     setLoading(true);
@@ -29,9 +31,10 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
     try {
       const res = await api.get('/tasks/matrix-overview/');
       setMatrixData(res.data || []);
-      // Auto-expand first branch if list has items
-      if (res.data?.length > 0 && !expandedMatrixId) {
-        setExpandedMatrixId(res.data[0].id);
+      // If a matrix was already selected, refresh its data in place
+      if (selectedMatrix) {
+        const updated = (res.data || []).find((m) => m.id === selectedMatrix.id);
+        if (updated) setSelectedMatrix(updated);
       }
     } catch (err) {
       console.error('Failed to load matrix overview:', err);
@@ -49,15 +52,15 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
   const totalBranches = matrixData.length;
   const totalStaff = matrixData.reduce((acc, m) => acc + (m.total_members || 0), 0);
   const totalPresent = matrixData.reduce((acc, m) => acc + (m.present_count || 0), 0);
-  const totalWorking = matrixData.reduce((acc, m) => acc + (m.working_count || 0), 0);
+  const totalCommits = matrixData.reduce((acc, m) => acc + (m.daily_commits_count || m.working_count || 0), 0);
+  const totalOverdues = matrixData.reduce((acc, m) => acc + (m.overdues_count || 0), 0);
   const totalIdle = matrixData.reduce((acc, m) => acc + (m.idle_count || 0), 0);
 
   const filteredMatrices = matrixData.filter((m) => {
     const q = searchQuery.toLowerCase();
     const matchesName = (m.name || '').toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q);
     const matchesLead = (m.supervisor_name || '').toLowerCase().includes(q);
-    const matchesMembers = (m.members || []).some(mem => (mem.name || '').toLowerCase().includes(q));
-    return matchesName || matchesLead || matchesMembers;
+    return matchesName || matchesLead;
   });
 
   return (
@@ -67,20 +70,21 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-              {currentUser.role === 'BUSINESS_ADMIN' ? 'Business Operations Cockpit' : 'Department Operations Cockpit'}
+              {currentUser?.role === 'BUSINESS_ADMIN' ? 'Business Operations Cockpit' : 'Department Operations Cockpit'}
             </span>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-1 flex items-center gap-2">
               <Layers className="w-5 h-5 text-indigo-600" />
-              {currentUser.role === 'BUSINESS_ADMIN' 
+              {currentUser?.role === 'BUSINESS_ADMIN' 
                 ? `Operational Matrix Branches • ${currentUser.business_name || 'My Business'}`
                 : `Operational Matrix Branches • ${currentUser.department_name || 'My Department'}`}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Review live attendance, active commitments, and drill down into individual team member cockpits.
+              Review live attendance, daily commit ratios, overdue tasks, and drill down into individual personnel.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={fetchMatrixData}
             className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
           >
@@ -88,7 +92,7 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
           </button>
         </div>
 
-        {/* Aggregate KPI Badges */}
+        {/* 5-Card Metric Ribbon */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-slate-100 text-xs">
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
             <span className="text-[10px] text-slate-400 font-bold uppercase block">Branches</span>
@@ -96,42 +100,28 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
           </div>
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Staff</span>
-            <span className="text-base font-bold text-slate-900 mt-0.5 block">{totalStaff}</span>
-          </div>
-
-          <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200">
-            <span className="text-[10px] text-emerald-700 font-bold uppercase block">On-Duty</span>
-            <span className="text-base font-bold text-emerald-800 mt-0.5 block">{totalPresent}</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Members</span>
+            <span className="text-base font-bold text-slate-900 mt-0.5 block">
+              <span className="text-emerald-600">{totalPresent}</span>
+              <span className="text-slate-400 text-xs font-normal"> / {totalStaff}</span>
+            </span>
           </div>
 
           <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200">
-            <span className="text-[10px] text-blue-700 font-bold uppercase block">Committed Tasks</span>
-            <span className="text-base font-bold text-blue-800 mt-0.5 block">{totalWorking}</span>
+            <span className="text-[10px] text-blue-700 font-bold uppercase block">Daily Commits</span>
+            <span className="text-base font-bold text-blue-800 mt-0.5 block">{totalCommits}</span>
           </div>
 
-          <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-200 col-span-2 sm:col-span-1">
-            <span className="text-[10px] text-rose-700 font-bold uppercase block">Idle Warnings</span>
-            <span className="text-base font-bold text-rose-800 mt-0.5 block">{totalIdle}</span>
+          <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-200">
+            <span className="text-[10px] text-rose-700 font-bold uppercase block">Overdues</span>
+            <span className="text-base font-bold text-rose-800 mt-0.5 block">{totalOverdues}</span>
+          </div>
+
+          <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 col-span-2 sm:col-span-1">
+            <span className="text-[10px] text-amber-800 font-bold uppercase block">Idle Users</span>
+            <span className="text-base font-bold text-amber-800 mt-0.5 block">{totalIdle}</span>
           </div>
         </div>
-      </div>
-
-      {/* 2. Search Filter */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
-          <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search branch code, supervisor, member..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
-          />
-        </div>
-        <span className="text-xs text-slate-400 hidden sm:inline">
-          Showing {filteredMatrices.length} of {matrixData.length} branches
-        </span>
       </div>
 
       {error && (
@@ -141,144 +131,296 @@ export default function MatrixDrilldownView({ currentUser, onSelectUser }) {
         </div>
       )}
 
-      {/* 3. Matrix Branches Accordion Roster */}
-      {loading ? (
-        <div className="bg-white p-12 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl shadow-2xs">
-          <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-600" />
-          Loading scoped matrix branches...
-        </div>
-      ) : filteredMatrices.length === 0 ? (
-        <div className="bg-white p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
-          No matrix branches found matching your search.
+      {/* 2. Main Content: Branches Table vs Drill-Down Roster */}
+      {!selectedMatrix ? (
+        /* =================== VIEW 1: MATRIX BRANCHES TABLE =================== */
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-3">
+          {/* Search Toolbar */}
+          <div className="p-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div className="relative w-full max-w-sm">
+              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search branch code, name, supervisor..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-slate-50/50"
+              />
+            </div>
+            <span className="text-xs text-slate-400 hidden sm:inline">
+              Showing {filteredMatrices.length} of {matrixData.length} branches
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
+                  <th className="py-3 px-4">Matrix Name</th>
+                  <th className="py-3 px-4">Incharge</th>
+                  <th className="py-3 px-4 text-center">Present / Active Users</th>
+                  <th className="py-3 px-4 text-center">Daily Commits / Total Active</th>
+                  <th className="py-3 px-4 text-center">Overdues</th>
+                  <th className="py-3 px-4 text-center">Idle Users</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan="7" className="py-12 text-center text-slate-400">
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-600" />
+                      Loading matrix branches...
+                    </td>
+                  </tr>
+                ) : filteredMatrices.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="py-12 text-center text-slate-400">
+                      No matrix branches found matching your search.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMatrices.map((matrix) => (
+                    <tr key={matrix.id} className="hover:bg-slate-50/70 transition">
+                      {/* Matrix Name & Code */}
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{matrix.name}</div>
+                        <div className="font-mono text-[10px] text-slate-400">{matrix.code}</div>
+                      </td>
+
+                      {/* Appointed Incharge */}
+                      <td className="py-3 px-4 font-medium text-slate-700">
+                        <div className="flex items-center gap-1.5">
+                          <UserCheck size={14} className="text-indigo-600 shrink-0" />
+                          <span>{matrix.supervisor_name || 'Unassigned Lead'}</span>
+                        </div>
+                      </td>
+
+                      {/* Present / Active Users */}
+                      <td className="py-3 px-4 text-center font-mono font-semibold">
+                        <span className="text-emerald-700">{matrix.present_count || 0}</span>
+                        <span className="text-slate-400 font-normal"> / {matrix.total_members || 0}</span>
+                      </td>
+
+                      {/* Daily Commits / Total Active Tasks */}
+                      <td className="py-3 px-4 text-center font-mono font-semibold">
+                        <span className="text-blue-700">{matrix.daily_commits_count || matrix.working_count || 0}</span>
+                        <span className="text-slate-400 font-normal"> / {matrix.total_active_tasks || 0}</span>
+                      </td>
+
+                      {/* Overdues Count */}
+                      <td className="py-3 px-4 text-center">
+                        {(matrix.overdues_count || 0) > 0 ? (
+                          <span className="inline-block px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-50 border border-rose-200 text-rose-700">
+                            {matrix.overdues_count} Overdue
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-[11px]">0</span>
+                        )}
+                      </td>
+
+                      {/* Idle Users Count */}
+                      <td className="py-3 px-4 text-center">
+                        {(matrix.idle_count || 0) > 0 ? (
+                          <span className="inline-block px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-50 border border-amber-300 text-amber-800 animate-pulse">
+                            {matrix.idle_count} Idle
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-[11px]">0</span>
+                        )}
+                      </td>
+
+                      {/* Drill-Down Action Button */}
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMatrix(matrix)}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs rounded-lg border border-indigo-200 transition cursor-pointer"
+                        >
+                          <Eye size={13} /> View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredMatrices.map((matrix) => {
-            const isExpanded = expandedMatrixId === matrix.id;
-
-            return (
-              <div 
-                key={matrix.id} 
-                className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden transition"
+        /* =================== VIEW 2: DRILL-DOWN MATRIX ROSTER =================== */
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-4 p-5 animate-in fade-in duration-150">
+          {/* Drill-down Navigation & Title Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedMatrix(null)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition cursor-pointer"
               >
-                {/* Branch Header Row */}
-                <div 
-                  onClick={() => setExpandedMatrixId(isExpanded ? null : matrix.id)}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/70 select-none"
-                >
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 shrink-0">
-                      <Layers size={18} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-slate-900 text-sm">
-                          {matrix.name}
-                        </h3>
-                        <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                          {matrix.code}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                        <span className="flex items-center gap-1 font-medium text-slate-700">
-                          <UserCheck size={13} className="text-indigo-600" />
-                          Lead: {matrix.supervisor_name}
-                        </span>
-                        <span>&bull;</span>
-                        <span className="text-slate-400">
-                          {matrix.business_name} &rarr; {matrix.department_name}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                <ArrowLeft size={14} /> Back to Branches
+              </button>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <Layers size={16} className="text-indigo-600" />
+                  {selectedMatrix.name} — Personnel Roster
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Supervisor pinned at Row #1 • Click any user to inspect personal task cockpit
+                </p>
+              </div>
+            </div>
 
-                  {/* Branch Metrics & Expand Indicator */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 self-stretch sm:self-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold text-[11px]" title="Total Members">
-                        {matrix.total_members} Staff
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold text-[11px]" title="On Duty">
-                        {matrix.present_count} Present
-                      </span>
-                      {matrix.idle_count > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] flex items-center gap-1">
-                          <AlertTriangle size={11} /> {matrix.idle_count} Idle
-                        </span>
-                      )}
-                    </div>
+            <span className="text-xs font-mono text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+              {selectedMatrix.roster?.length || 0} Total Members
+            </span>
+          </div>
 
-                    <button 
-                      type="button"
-                      className="p-1 hover:bg-slate-200/60 rounded-lg text-slate-400 text-slate-600"
-                    >
-                      {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                    </button>
-                  </div>
-                </div>
+          {/* Unified Roster Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
+                  <th className="py-3 px-4">Member Name</th>
+                  <th className="py-3 px-4">Designation & Role</th>
+                  <th className="py-3 px-4">
+                    Activity Status
+                    <span className="text-[10px] text-slate-400 lowercase font-normal ml-1">
+                      (active • present • commits)
+                    </span>
+                  </th>
+                  <th className="py-3 px-4 text-center">Active Backlog Tasks</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(!selectedMatrix.roster || selectedMatrix.roster.length === 0) ? (
+                  <tr>
+                    <td colSpan="5" className="py-8 text-center text-slate-400">
+                      No personnel assigned to this matrix branch.
+                    </td>
+                  </tr>
+                ) : (
+                  selectedMatrix.roster.map((member, idx) => {
+                    const isSupervisor = Boolean(member.is_supervisor);
+                    const isPresent = Boolean(member.is_present);
+                    const activeCount = member.active_tasks_count || 0;
+                    const isIdle = isPresent && activeCount === 0;
 
-                {/* Expanded Branch Member Roster */}
-                {isExpanded && (
-                  <div className="border-t border-slate-100 bg-slate-50/50 p-4 space-y-3 animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
-                      <span>Branch Personnel ({matrix.members?.length || 0})</span>
-                      <span className="text-slate-400 normal-case font-normal text-[11px]">
-                        Click any member to open their task cockpit &rarr;
-                      </span>
-                    </div>
+                    return (
+                      <tr 
+                        key={member.id} 
+                        className={`transition hover:bg-slate-50/70 ${
+                          isSupervisor ? 'bg-indigo-50/30 font-medium' : ''
+                        }`}
+                      >
+                        {/* Member Name with Supervisor Pin Pin Indicator */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            {isSupervisor ? (
+                              <span className="px-1.5 py-0.5 bg-indigo-600 text-white font-bold text-[9px] rounded uppercase tracking-wider">
+                                Incharge
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-[10px]">#{idx + 1}</span>
+                            )}
+                            <div>
+                              <span className="font-bold text-slate-900">{member.name}</span>
+                              <span className="text-slate-400 text-[10px] block font-mono">@{member.username}</span>
+                            </div>
+                          </div>
+                        </td>
 
-                    {(!matrix.members || matrix.members.length === 0) ? (
-                      <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
-                        No base employees assigned to this matrix branch.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                        {matrix.members.map((member) => (
-                          <div 
-                            key={member.id}
-                            onClick={() => onSelectUser && onSelectUser(member.id)}
-                            className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition cursor-pointer flex items-center justify-between group"
-                          >
-                            <div className="min-w-0 pr-2">
-                              <div className="flex items-center gap-1.5">
-                                <h4 className="font-bold text-slate-900 text-xs truncate group-hover:text-indigo-600 transition">
-                                  {member.name}
-                                </h4>
-                                {member.is_present ? (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" title="Present / On-Duty" />
-                                ) : (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-slate-300 shrink-0" title="Offline / Leave" />
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                                {member.designation || 'Staff'} &bull; {member.role}
-                              </p>
-                              {member.is_idle ? (
-                                <span className="inline-block mt-1 text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">
-                                  Idle (0 Tasks Committed)
-                                </span>
-                              ) : member.is_present ? (
-                                <span className="inline-block mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
-                                  Active On-Duty
-                                </span>
-                              ) : null}
+                        {/* Designation & Role Badge */}
+                        <td className="py-3 px-4 text-slate-600">
+                          <div>{member.designation || 'Staff Member'}</div>
+                          <div className="text-[10px] text-slate-400">{member.role}</div>
+                        </td>
+
+                        {/* Sequential 3-Dot Status Indicator */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            {/* Dot 1: Active */}
+                            <div className="flex items-center gap-1" title="User is Active">
+                              <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                              </span>
+                              <span className="text-[10px] text-slate-500">Active</span>
                             </div>
 
-                            <button 
-                              type="button" 
-                              className="p-1 text-slate-400 group-hover:text-indigo-600 group-hover:bg-indigo-50 rounded-lg transition"
-                            >
-                              <ChevronRight size={14} />
-                            </button>
+                            <span className="text-slate-300">•</span>
+
+                            {/* Dot 2: Present */}
+                            <div className="flex items-center gap-1" title={isPresent ? 'On Duty' : 'On Leave'}>
+                              {isPresent ? (
+                                <>
+                                  <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                  </span>
+                                  <span className="text-[10px] text-emerald-700 font-semibold">Present</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="h-2 w-2 rounded-full bg-slate-300"></span>
+                                  <span className="text-[10px] text-slate-400">On Leave</span>
+                                </>
+                              )}
+                            </div>
+
+                            <span className="text-slate-300">•</span>
+
+                            {/* Dot 3: Work / Commits Indicator */}
+                            <div className="flex items-center gap-1" title={isIdle ? '0 Commits (Idle)' : 'Active Work'}>
+                              {!isPresent ? (
+                                <>
+                                  <span className="h-2 w-2 rounded-full bg-slate-200"></span>
+                                  <span className="text-[10px] text-slate-400">Offline</span>
+                                </>
+                              ) : isIdle ? (
+                                <>
+                                  <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                                  </span>
+                                  <span className="text-[10px] text-rose-600 font-bold">Idle</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
+                                  </span>
+                                  <span className="text-[10px] text-blue-700 font-semibold">Working</span>
+                                </>
+                              )}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                        </td>
+
+                        {/* Active Backlog Tasks Count */}
+                        <td className="py-3 px-4 text-center font-mono font-bold text-slate-800">
+                          {activeCount}
+                        </td>
+
+                        {/* Drill-Down Action Button */}
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onSelectUser && onSelectUser(member.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                          >
+                            Inspect Cockpit <ChevronRight size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
-              </div>
-            );
-          })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

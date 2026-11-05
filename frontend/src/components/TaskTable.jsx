@@ -10,12 +10,9 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
-  User,
   Clock,
   CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  Eye
+  AlertCircle
 } from 'lucide-react';
 
 export default function TaskTable({ 
@@ -60,7 +57,15 @@ export default function TaskTable({
     }
   };
 
-  const filteredTasks = tasks.filter((t) => {
+  // In self-view: strictly personal active tasks; terminal states (VERIFIED, REJECTED, CANCELLED) disappear
+  const baseTasks = isSelfView 
+    ? tasks.filter(t => 
+        (t.assigned_to === currentUser?.id || !t.assigned_to) &&
+        !['VERIFIED', 'REJECTED', 'CANCELLED'].includes(t.status)
+      )
+    : tasks;
+
+  const filteredTasks = baseTasks.filter((t) => {
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
     return true;
@@ -105,9 +110,13 @@ export default function TaskTable({
             <option value="IN_PROGRESS">In Progress</option>
             <option value="ON_HOLD">On Hold</option>
             <option value="AWAITING_VERIFICATION">Awaiting Verification</option>
-            <option value="VERIFIED">Verified / Done</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="CANCELLED">Cancelled</option>
+            {!isSelfView && (
+              <>
+                <option value="VERIFIED">Verified / Done</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
+              </>
+            )}
           </select>
 
           <select
@@ -142,8 +151,7 @@ export default function TaskTable({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
-                <th className="py-3 px-4">Task Details</th>
-                <th className="py-3 px-3">Priority</th>
+                <th className="py-3 px-4">Task Name</th>
                 {isSelfView ? (
                   <th className="py-3 px-3">Assigned By</th>
                 ) : (
@@ -153,6 +161,7 @@ export default function TaskTable({
                   </>
                 )}
                 <th className="py-3 px-3">Status</th>
+                <th className="py-3 px-3">Priority</th>
                 <th className="py-3 px-3">Progress</th>
                 <th className="py-3 px-3">Due Date</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -162,25 +171,26 @@ export default function TaskTable({
               {filteredTasks.length === 0 ? (
                 <tr>
                   <td colSpan={isSelfView ? 7 : 8} className="py-12 text-center text-slate-400">
-                    No tasks match the selected criteria.
+                    No active tasks match the selected criteria.
                   </td>
                 </tr>
               ) : (
                 filteredTasks.map((task) => {
                   const isAssignee = currentUser?.id === task.assigned_to;
-                  const isAuthority =
-                    ['SUPERVISOR', 'DEPT_HEAD', 'BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(
+                  // Authority override exists ONLY on tasks assigned to someone else
+                  const isAuthorityOnSubordinate =
+                    !isAssignee &&
+                    (['SUPERVISOR', 'DEPT_HEAD', 'BUSINESS_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(
                       currentUser?.role
                     ) ||
-                    currentUser?.is_superuser ||
-                    task.created_by === currentUser?.id;
+                      currentUser?.is_superuser ||
+                      task.created_by === currentUser?.id);
                   
-                  // Overdue check matches backend view invariants
                   const isOverdue = Boolean(task.is_overdue) && !['VERIFIED', 'REJECTED', 'CANCELLED'].includes(task.status);
+                  const isAwaitingVerification = task.status === 'AWAITING_VERIFICATION';
                   const isExpanded = expandedTaskId === task.id;
                   const createdDT = formatDateTime(task.created_at);
 
-                  // Extract assignee matrix title or business code if present
                   const assigneeMatrix = task.assigned_to_matrix_title || 
                     (task.assigned_to_business_code && task.assigned_to_department_name
                       ? `${task.assigned_to_business_code} - ${task.assigned_to_department_name}`
@@ -189,7 +199,7 @@ export default function TaskTable({
                   return (
                     <React.Fragment key={task.id}>
                       <tr className="hover:bg-slate-50/70 transition">
-                        {/* Task Title & Expand Toggle */}
+                        {/* Task Name & Commitment Pulse */}
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <button
@@ -199,8 +209,22 @@ export default function TaskTable({
                             >
                               {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             </button>
+
+                            {/* Green Pulse Indicator if committed today */}
+                            {task.is_committed_today && (
+                              <span 
+                                title="Active in Today's Commitment Plan" 
+                                className="relative flex h-2.5 w-2.5 shrink-0"
+                              >
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                              </span>
+                            )}
+
                             <div>
-                              <div className="font-semibold text-slate-900">{task.title}</div>
+                              <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                                {task.title}
+                              </div>
                               {task.requires_verification && (
                                 <span className="inline-block mt-0.5 text-[9px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
                                   Verification Required
@@ -210,18 +234,7 @@ export default function TaskTable({
                           </div>
                         </td>
 
-                        {/* Priority */}
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
-                              priorityStyles[task.priority] || 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {task.priority}
-                          </span>
-                        </td>
-
-                        {/* Assignee / Assigned By Columns */}
+                        {/* Assignee / Assigned By */}
                         {isSelfView ? (
                           <td className="py-3 px-3">
                             <div className="font-medium text-slate-800">
@@ -233,7 +246,6 @@ export default function TaskTable({
                           </td>
                         ) : (
                           <>
-                            {/* Team Mode Assignee & Branch */}
                             <td className="py-3 px-3">
                               <div className="font-semibold text-slate-900">
                                 {task.assigned_to_name || `User #${task.assigned_to}`}
@@ -264,6 +276,17 @@ export default function TaskTable({
                             }`}
                           >
                             {task.status?.replace('_', ' ')}
+                          </span>
+                        </td>
+
+                        {/* Priority */}
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
+                              priorityStyles[task.priority] || 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {task.priority}
                           </span>
                         </td>
 
@@ -298,7 +321,7 @@ export default function TaskTable({
 
                         {/* Actions */}
                         <td className="py-3 px-4 text-right">
-                          {/* Case 1: Task is Pending Acceptance */}
+                          {/* Case 1: Pending Acceptance */}
                           {task.status === 'REQUEST_PENDING' ? (
                             isAssignee ? (
                               <div className="flex items-center justify-end gap-1.5">
@@ -320,12 +343,16 @@ export default function TaskTable({
                             ) : (
                               <span className="text-[11px] text-slate-400 font-medium">Pending Acceptance</span>
                             )
-                          ) : isOverdue ? (
-                            /* Case 2: Task is Overdue */
-                            isAssignee ? (
+                          ) : isAssignee ? (
+                            /* Case 2: User is Task Assignee (Supervisor, BusAdmin, DeptHead, or Employee) */
+                            isAwaitingVerification ? (
+                              <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-1 rounded-md inline-block">
+                                Awaiting Verification
+                              </span>
+                            ) : isOverdue ? (
                               task.overdue_reason_submitted ? (
-                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md">
-                                  Reason Submitted
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md inline-block">
+                                  Reason Submitted — Review Pending
                                 </span>
                               ) : (
                                 <button
@@ -333,34 +360,34 @@ export default function TaskTable({
                                   onClick={() => setDelayModalTask(task)}
                                   className="inline-flex items-center gap-1 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg transition shadow-2xs cursor-pointer"
                                 >
-                                  <AlertTriangle size={12} /> Submit Delay Reason
+                                  <AlertTriangle size={12} /> Submit Reason
                                 </button>
                               )
-                            ) : isAuthority ? (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenActionModal(task)}
-                                  className="text-xs text-blue-600 hover:bg-blue-50 px-2.5 py-1 rounded font-semibold border border-blue-200 cursor-pointer"
-                                >
-                                  Update
-                                </button>
-                              </div>
-                            ) : null
-                          ) : (
-                            /* Case 3: Normal In-Progress Task */
-                            <button
-                              type="button"
-                              onClick={() => onOpenActionModal(task)}
-                              className="text-xs text-blue-600 hover:bg-blue-50 px-2.5 py-1 rounded font-semibold border border-transparent hover:border-blue-200 transition cursor-pointer"
-                            >
-                              Update
-                            </button>
-                          )}
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onOpenActionModal(task)}
+                                className="text-xs text-blue-600 hover:bg-blue-50 px-2.5 py-1 rounded font-semibold border border-transparent hover:border-blue-200 transition cursor-pointer"
+                              >
+                                Update
+                              </button>
+                            )
+                          ) : isAuthorityOnSubordinate ? (
+                            /* Case 3: Upstream Authority reviewing a subordinate's task */
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => onOpenActionModal(task)}
+                                className="text-xs text-blue-600 hover:bg-blue-50 px-2.5 py-1 rounded font-semibold border border-blue-200 cursor-pointer"
+                              >
+                                Update
+                              </button>
+                            </div>
+                          ) : null}
                         </td>
                       </tr>
 
-                      {/* Expanded Task Description & Metadata Drawer */}
+                      {/* Expanded Task Description Drawer */}
                       {isExpanded && (
                         <tr className="bg-slate-50/60">
                           <td colSpan={isSelfView ? 7 : 8} className="px-6 py-3.5 text-xs text-slate-600 border-b border-slate-200 space-y-2">
@@ -371,14 +398,6 @@ export default function TaskTable({
                               </p>
                             </div>
 
-                            {/* Rejection metadata display if rejected */}
-                            {task.status === 'REJECTED' && task.rejection_reason && (
-                              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px]">
-                                <strong>Declined Reason:</strong> [{task.rejection_reason}] {task.rejection_remarks}
-                              </div>
-                            )}
-
-                            {/* Verified By Metadata */}
                             {task.status === 'VERIFIED' && task.verified_by && (
                               <div className="text-[10px] text-emerald-700 font-medium">
                                 ✓ Verified and closed by manager ID #{task.verified_by}
@@ -396,7 +415,7 @@ export default function TaskTable({
         </div>
       </div>
 
-      {/* Overdue Delay Modal */}
+      {/* Modals */}
       <TaskDelayModal
         isOpen={Boolean(delayModalTask)}
         task={delayModalTask}
@@ -407,7 +426,6 @@ export default function TaskTable({
         }}
       />
 
-      {/* Task Rejection Modal */}
       <TaskRejectModal
         isOpen={Boolean(rejectModalTask)}
         task={rejectModalTask}

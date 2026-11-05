@@ -53,9 +53,9 @@ class Task(models.Model):
         related_name='assigned_tasks'
     )
 
-    # Deadlines & Verification
+    # Deadlines & Verification (Default is True as required)
     due_date = models.DateField(null=True, blank=True)
-    requires_verification = models.BooleanField(default=False)
+    requires_verification = models.BooleanField(default=True)
     verified_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -94,8 +94,13 @@ class Task(models.Model):
     def is_overdue(self):
         if not self.due_date:
             return False
+            
         # Matches is_task_overdue_for_user in views.py
         if self.status in ['VERIFIED', 'REJECTED', 'CANCELLED'] or self.progress_percentage == 100:
+            return False
+
+        # Top Authorities (ADMIN, SUPER_ADMIN) are exempt from overdue locking
+        if self.assigned_to and self.assigned_to.role in ['ADMIN', 'SUPER_ADMIN']:
             return False
             
         today = timezone.localtime(timezone.now()).date()

@@ -17,6 +17,7 @@ from .models import (
     PasswordResetOTP,
     SystemAuditLog,
 )
+from .audit_service import log_system_event
 
 User = get_user_model()
 
@@ -546,7 +547,7 @@ class SubordinateUserSerializer(serializers.ModelSerializer):
 
 
 # ==========================================
-# 5. USER CREATION & EDIT SERIALIZERS (HIERARCHY BOUNDARY ENFORCED)
+# 5. USER CREATION & EDIT SERIALIZERS (WITH AUDIT HOOKS)
 # ==========================================
 class UserCreateSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
@@ -582,7 +583,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
             actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
             target_rank = ROLE_HIERARCHY_RANK.get(target_role, 99)
 
-            # Strict hierarchy: You can only create roles of strictly LOWER tier (target_rank > actor_rank)
+            # Strict hierarchy: You can only create roles of strictly LOWER tier
             if actor.role != 'SUPER_ADMIN' and target_rank <= actor_rank:
                 raise serializers.ValidationError({
                     'role': f"You cannot create users with equal or higher role tier ({target_role})."
@@ -611,6 +612,9 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         with transaction.atomic():
+            request = self.context.get('request')
+            actor = getattr(request, 'user', None)
+
             password = validated_data.pop('password', None) or 'TempPass@123'
             raw_matrix = validated_data.pop('matrix_id', None)
             raw_biz = validated_data.pop('business_id', None)
@@ -675,6 +679,19 @@ class UserCreateSerializer(serializers.ModelSerializer):
                         matrix_obj.supervisor = user
                         matrix_obj.save(update_fields=['supervisor'])
                         matrix_obj.matrix_members.filter(role='EMPLOYEE').update(reports_to=user)
+
+                        # Emit audit log
+                        log_system_event(
+                            actor=actor,
+                            action_type='USER_CREATED',
+                            module='USER',
+                            target_user=user,
+                            entity_id=user.id,
+                            entity_name=user.username,
+                            new_values={'role': user.role, 'matrix_id': matrix_obj.id, 'designation': user.designation},
+                            remarks=f"Provisioned supervisor account for {user.username} on matrix {matrix_obj.title}",
+                            request=request
+                        )
                         return user
                 else:
                     user.matrix = None
@@ -697,11 +714,22 @@ class UserCreateSerializer(serializers.ModelSerializer):
                         Business.objects.filter(incharge=user).exclude(pk=biz.pk).update(incharge=None)
                         biz.incharge = user
                         biz.save(update_fields=['incharge'])
+
+                    log_system_event(
+                        actor=actor,
+                        action_type='USER_CREATED',
+                        module='USER',
+                        target_user=user,
+                        entity_id=user.id,
+                        entity_name=user.username,
+                        new_values={'role': user.role, 'business_id': biz.id if biz else None},
+                        remarks=f"Provisioned Business Admin for {user.username}",
+                        request=request
+                    )
                     return user
                 else:
                     user.business = None
                     user.save()
-                    return user
 
             # CASE D: DEPARTMENT ADMIN (DEPARTMENT HEAD)
             elif target_role == 'DEPT_HEAD':
@@ -718,11 +746,22 @@ class UserCreateSerializer(serializers.ModelSerializer):
                         Department.objects.filter(incharge=user).exclude(pk=dept.pk).update(incharge=None)
                         dept.incharge = user
                         dept.save(update_fields=['incharge'])
+
+                    log_system_event(
+                        actor=actor,
+                        action_type='USER_CREATED',
+                        module='USER',
+                        target_user=user,
+                        entity_id=user.id,
+                        entity_name=user.username,
+                        new_values={'role': user.role, 'department_id': dept.id if dept else None},
+                        remarks=f"Provisioned Dept Head for {user.username}",
+                        request=request
+                    )
                     return user
                 else:
                     user.department = None
                     user.save()
-                    return user
 
             # CASE E: ADMIN / SUPER ADMIN
             else:
@@ -732,6 +771,26 @@ class UserCreateSerializer(serializers.ModelSerializer):
                 user.reports_to = super_admin if target_role == 'ADMIN' else None
 
             user.save()
+
+            # Central audit logging dispatch
+            log_system_event(
+                actor=actor,
+                action_type='USER_CREATED',
+                module='USER',
+                target_user=user,
+                entity_id=user.id,
+                entity_name=user.username,
+                new_values={
+                    'role': user.role,
+                    'designation': user.designation,
+                    'matrix_id': user.matrix_id,
+                    'business_id': user.business_id,
+                    'department_id': user.department_id,
+                    'reports_to_id': user.reports_to_id,
+                },
+                remarks=f"Provisioned account for {user.username} with role {user.role}",
+                request=request
+            )
             return user
 
 
@@ -787,6 +846,20 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         with transaction.atomic():
+            request = self.context.get('request')
+            actor = getattr(request, 'user', None)
+
+            # Snapshot previous state for audit log
+            old_values = {
+                'role': instance.role,
+                'designation': instance.designation,
+                'matrix_id': instance.matrix_id,
+                'business_id': instance.business_id,
+                'department_id': instance.department_id,
+                'reports_to_id': instance.reports_to_id,
+                'is_active': instance.is_active,
+            }
+
             has_matrix = 'matrix_id' in validated_data
             has_biz = 'business_id' in validated_data
             has_dept = 'department_id' in validated_data
@@ -922,4 +995,29 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                 instance.reports_to = super_admin if target_role == 'ADMIN' else None
 
             instance.save()
+
+            # Snapshot new state and emit audit log
+            new_values = {
+                'role': instance.role,
+                'designation': instance.designation,
+                'matrix_id': instance.matrix_id,
+                'business_id': instance.business_id,
+                'department_id': instance.department_id,
+                'reports_to_id': instance.reports_to_id,
+                'is_active': instance.is_active,
+            }
+
+            log_system_event(
+                actor=actor,
+                action_type='USER_UPDATED',
+                module='USER',
+                target_user=instance,
+                entity_id=instance.id,
+                entity_name=instance.username,
+                old_values=old_values,
+                new_values=new_values,
+                remarks=f"Updated user profile and settings for {instance.username}",
+                request=request
+            )
+
             return instance

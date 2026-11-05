@@ -1,15 +1,21 @@
-import  { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, PlusCircle, AlertCircle } from 'lucide-react';
 import api from '../api/axios';
 
-export default function CreateTaskModal({ isOpen, onClose, onTaskCreated, currentUser }) {
+export default function CreateTaskModal({ 
+  isOpen, 
+  onClose, 
+  onTaskCreated, 
+  currentUser,
+  defaultAssignedToUserId = null 
+}) {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     priority: 'MEDIUM',
     assigned_to: '',
     due_date: '',
-    requires_verification: false
+    requires_verification: true
   });
 
   const [assigneeOptions, setAssigneeOptions] = useState([]);
@@ -22,13 +28,18 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated, curren
   useEffect(() => {
     if (isOpen) {
       setError(null);
+      
+      const initialAssignee = isEmployee 
+        ? currentUser.id 
+        : (defaultAssignedToUserId ? String(defaultAssignedToUserId) : '');
+
       setFormData({
         title: '',
         description: '',
         priority: 'MEDIUM',
-        assigned_to: isEmployee ? currentUser.id : '',
+        assigned_to: initialAssignee,
         due_date: '',
-        requires_verification: false
+        requires_verification: true
       });
 
       // Load permitted assignees based on role scope
@@ -60,7 +71,7 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated, curren
           .finally(() => setLoadingAssignees(false));
       }
     }
-  }, [isOpen, currentUser, isEmployee]);
+  }, [isOpen, currentUser, isEmployee, defaultAssignedToUserId]);
 
   if (!isOpen) return null;
 

@@ -1,6 +1,6 @@
 # backend/accounts/views.py
 
-from datetime import time
+from datetime import time, timedelta
 from django.utils import timezone
 from django.conf import settings
 from django.core.mail import send_mail
@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.db import models, transaction
 from django.db.models import Q
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from rest_framework import viewsets, permissions, status, generics
@@ -54,7 +55,6 @@ User = get_user_model()
 ACTIVE_WORK_STATUSES = ['ACCEPTED', 'IN_PROGRESS']
 ACTIVE_TASK_STATUSES = ['REQUEST_PENDING', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_VERIFICATION']
 
-# Role Tier hierarchy weight for comparison (lower number = higher tier)
 ROLE_HIERARCHY_RANK = {
     'SUPER_ADMIN': 1,
     'ADMIN': 2,
@@ -537,7 +537,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
             'business', 'department', 'supervisor', 'created_by'
         ).all()
 
-        # Strict matrix scoping per role
         if user.is_super_admin or user.role == 'ADMIN':
             return queryset.order_by('business__name', 'department__name')
         elif user.role == 'BUSINESS_ADMIN':
@@ -750,7 +749,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
             if new_sup.role not in ['SUPERVISOR', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPER_ADMIN']:
                 return Response({'detail': 'Incharge must have Supervisor or higher role.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Strict Incharge Assignment RBAC checks
             if actor.role in ['BUSINESS_ADMIN', 'DEPT_HEAD']:
                 if new_sup.id != actor.id and new_sup.role != 'SUPERVISOR':
                     return Response({'detail': 'Business/Department Admins can only assign themselves or unassigned supervisors.'}, status=status.HTTP_403_FORBIDDEN)
@@ -817,7 +815,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='available-candidates')
     def available_candidates(self, request, pk=None):
-        """Returns base employees not yet assigned to any matrix branch."""
         matrix_unit = self.get_object()
         actor = request.user
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
@@ -925,22 +922,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='candidate-incharges')
     def candidate_incharges(self, request):
-        """
-        Returns users eligible to lead a specific Matrix branch:
-        1. Actor is BUSINESS_ADMIN or DEPT_HEAD:
-           - Self
-           - Unassigned SUPERVISORs (no active matrix branch)
-           - Current supervisor if editing
-           - Excludes other admins, peer dept/business admins, and super admins.
-        2. Actor is ADMIN:
-           - BUSINESS_ADMIN of the selected business
-           - DEPT_HEAD of the selected department
-           - Unassigned SUPERVISORs
-           - Current supervisor if editing
-           - Excludes other ADMINs and SUPER_ADMINs.
-        3. Actor is SUPER_ADMIN:
-           - All of the above PLUS ADMIN users.
-        """
         actor = request.user
         matrix_id = request.query_params.get('matrix_id')
         biz_id = request.query_params.get('business_id')
@@ -959,10 +940,8 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
                 candidate_q |= Q(id=curr_matrix.supervisor_id)
 
         if actor.role in ['BUSINESS_ADMIN', 'DEPT_HEAD']:
-            # Business/Dept Admin can only assign self or unassigned supervisors
             candidate_q |= Q(id=actor.id)
         elif actor.role == 'ADMIN':
-            # Admin can assign matching business admin, matching dept head, or unassigned supervisor
             if biz_id:
                 candidate_q |= (
                     Q(role='BUSINESS_ADMIN') & (
@@ -978,7 +957,6 @@ class BusinessDepartmentViewSet(viewsets.ModelViewSet):
                     )
                 )
         elif actor.role == 'SUPER_ADMIN':
-            # Super Admin can assign all matching leads, unassigned supervisors, and other Admins
             candidate_q |= Q(role='ADMIN')
             if biz_id:
                 candidate_q |= (
@@ -1023,17 +1001,13 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
-        # Exclude self from user management listing (self updates are managed via personal profile)
         qs = qs.exclude(id=actor.id)
 
         if actor.role == 'SUPER_ADMIN':
-            # Super Admin sees and manages all accounts across the organization
             qs = qs.order_by('-date_joined')
         elif actor.role == 'ADMIN':
-            # Admin sees all lower-tier accounts; excludes other Admins and Super Admins
             qs = qs.exclude(role__in=['ADMIN', 'SUPER_ADMIN']).order_by('-date_joined')
         elif actor.role == 'BUSINESS_ADMIN':
-            # Business Admin sees only lower-tier accounts (Supervisor & Employee) strictly within their business
             if actor_biz:
                 qs = qs.filter(
                     Q(business=actor_biz) | Q(matrix__business=actor_biz) | Q(managed_businesses=actor_biz),
@@ -1042,7 +1016,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
             else:
                 return User.objects.none()
         elif actor.role == 'DEPT_HEAD':
-            # Department Admin sees only lower-tier accounts (Supervisor & Employee) strictly within their department
             if actor_dept:
                 qs = qs.filter(
                     Q(department=actor_dept) | Q(matrix__department=actor_dept) | Q(managed_departments=actor_dept),
@@ -1051,7 +1024,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
             else:
                 return User.objects.none()
         elif actor.role == 'SUPERVISOR':
-            # Supervisor sees base employees strictly belonging to their current matrix branch
             eff_matrix = getattr(actor, 'effective_matrix', None) or actor.matrix
             if eff_matrix:
                 qs = qs.filter(matrix=eff_matrix, role='EMPLOYEE').order_by('-date_joined')
@@ -1110,17 +1082,14 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         target_user = self.get_object()
         actor = request.user
 
-        # 1. Self update is strictly prohibited in User Management table (routes to profile view)
         if actor.id == target_user.id:
             return Response({'detail': 'You cannot edit your own account through User Management. Use your Profile page.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Hierarchy rule: Cannot edit users of equal or higher tier
         actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
         target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
         if target_rank <= actor_rank:
             return Response({'detail': 'You cannot modify users in the same or higher administrative tier.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # 3. Entity & Matrix scope guards
         actor_biz = getattr(actor, 'effective_business', None) or actor.business
         actor_dept = getattr(actor, 'effective_department', None) or actor.department
 
@@ -1139,7 +1108,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
             if request.data.get('role') and request.data.get('role') != 'EMPLOYEE':
                 return Response({'detail': 'Supervisors cannot modify employee role tiers.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # 4. Prevent assigning equal or higher roles
         req_role = request.data.get('role')
         if req_role:
             req_rank = ROLE_HIERARCHY_RANK.get(req_role, 99)
@@ -1206,7 +1174,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         if actor.id == target_user.id:
             return Response({'detail': 'You cannot delete your own account.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Hierarchy validation: Can only delete lower tier users
         actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
         target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
         if target_rank <= actor_rank:
@@ -1215,7 +1182,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         if actor.role not in ['ADMIN', 'SUPER_ADMIN']:
             return Response({'detail': 'Only Admins and Super Admins are permitted to delete user accounts.'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Active tasks deletion blocker
         active_tasks = Task.objects.filter(assigned_to=target_user, status__in=ACTIVE_TASK_STATUSES)
         if active_tasks.exists():
             return Response(
@@ -1255,7 +1221,6 @@ class EmployeeManagementViewSet(viewsets.ModelViewSet):
         if target_user.id == actor.id:
             return Response({'detail': 'You cannot disable your own account.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Hierarchy validation
         actor_rank = ROLE_HIERARCHY_RANK.get(actor.role, 99)
         target_rank = ROLE_HIERARCHY_RANK.get(target_user.role, 99)
         if target_rank <= actor_rank:
@@ -1431,7 +1396,6 @@ class UserCockpitDetailView(APIView):
         biz_obj = getattr(target_user, 'effective_business', None) or target_user.business or (target_user.matrix.business if target_user.matrix else None)
         mgr_obj = target_user.reports_to or target_user.get_hierarchical_upstream_lead()
 
-        # Dynamic cross-entity display logic
         if target_user.role in ['ADMIN', 'SUPER_ADMIN']:
             dept_display = 'All Departments'
             biz_display = 'All Businesses'
@@ -1642,8 +1606,32 @@ class ResetPasswordWithOTPView(APIView):
 
 
 # ==========================================
-# 10. SYSTEM AUDIT LOG LIST VIEW (SCOPED RBAC)
+# 10. SYSTEM AUDIT LOG LIST & METADATA VIEW
 # ==========================================
+class SystemAuditLogMetaView(APIView):
+    """
+    Returns dynamic maximum selectable days based on the oldest surviving SystemAuditLog record.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localtime(timezone.now()).date()
+        oldest_record = SystemAuditLog.objects.order_by('timestamp').first()
+
+        if oldest_record and oldest_record.timestamp:
+            earliest_date = oldest_record.timestamp.date()
+            available_days = max((today - earliest_date).days + 1, 1)
+        else:
+            earliest_date = today
+            available_days = 1
+
+        return Response({
+            'today': str(today),
+            'earliest_log_date': str(earliest_date),
+            'max_available_days': available_days
+        })
+
+
 class SystemAuditLogListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1735,7 +1723,31 @@ class SystemAuditLogListView(APIView):
                 Q(target_user__username__icontains=search_query)
             )
 
-        logs = qs.order_by('-timestamp')[:150]
+        # Dynamic Days Retention Filter
+        days_param = request.query_params.get('days')
+        now = timezone.now()
+        if days_param and days_param.isdigit():
+            retention_days = max(int(days_param), 1)
+            cutoff_date = now - timedelta(days=retention_days)
+            qs = qs.filter(timestamp__gte=cutoff_date)
+        else:
+            # Default fallback: 30 days
+            qs = qs.filter(timestamp__gte=now - timedelta(days=30))
+
+        qs = qs.order_by('-timestamp')
+
+        # Pagination: 25, 50, 100 (Default: 100)
+        page_size_param = request.query_params.get('page_size', '100')
+        page_size = int(page_size_param) if page_size_param in ['25', '50', '100'] else 100
+        page_num = request.query_params.get('page', 1)
+
+        paginator = Paginator(qs, page_size)
+        try:
+            page_obj = paginator.page(page_num)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
 
         payload = [
             {
@@ -1755,7 +1767,13 @@ class SystemAuditLogListView(APIView):
                 'remarks': log.remarks,
                 'timestamp': log.timestamp.isoformat(),
             }
-            for log in logs
+            for log in page_obj.object_list
         ]
 
-        return Response(payload, status=status.HTTP_200_OK)
+        return Response({
+            'count': paginator.count,
+            'num_pages': paginator.num_pages,
+            'current_page': page_obj.number,
+            'page_size': page_size,
+            'results': payload
+        }, status=status.HTTP_200_OK)
