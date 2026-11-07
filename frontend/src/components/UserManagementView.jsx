@@ -100,12 +100,11 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
   // Hierarchy validation helper: checks if the current user can manage target user
   const canManageTargetUser = (targetUser) => {
     if (!currentUser || !targetUser) return false;
-    if (targetUser.id === currentUser.id) return false; // Self-management is handled via personal profile
+    if (targetUser.id === currentUser.id) return false;
 
     const actorRank = ROLE_HIERARCHY_RANK[currentUser.role] || 99;
     const targetRank = ROLE_HIERARCHY_RANK[targetUser.role] || 99;
 
-    // Can only manage strictly lower-tier roles (targetRank > actorRank)
     return targetRank > actorRank;
   };
 
@@ -184,42 +183,46 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
   const getRoleBadge = (role) => {
     switch (role) {
       case 'SUPER_ADMIN':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
+        return 'bg-amber-500/20 text-amber-300 border-amber-400/50 shadow-[0_0_10px_rgba(245,158,11,0.15)]';
       case 'ADMIN':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return 'bg-amber-500/10 text-amber-200 border-amber-400/35';
       case 'BUSINESS_ADMIN':
-        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+        return 'bg-[#181510] text-amber-300 border-amber-500/30';
       case 'DEPT_HEAD':
-        return 'bg-teal-100 text-teal-800 border-teal-200';
+        return 'bg-[#181612] text-amber-200 border-amber-500/30';
       case 'SUPERVISOR':
-        return 'bg-amber-100 text-amber-900 border-amber-200';
+        return 'bg-neutral-900 text-amber-300/90 border-amber-500/25';
       default:
-        return 'bg-slate-100 text-slate-700 border-slate-200';
+        return 'bg-neutral-900/80 text-neutral-300 border-neutral-800';
     }
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4 pb-12">
+    <div className="space-y-4 sm:space-y-6 max-w-7xl mx-auto pb-12 text-neutral-200">
       {/* Top Banner & Action */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="text-blue-600" size={22} />
+      <div className="bg-[#0b0c0e] rounded-3xl border border-amber-400/50 p-4 sm:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_rgba(245,158,11,0.12)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden">
+        <div className="absolute -top-24 -left-24 w-60 h-60 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10">
+          <h1 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2.5 tracking-wide">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#1c1917] via-[#161412] to-[#0a0a0a] text-amber-300 border border-amber-400/40 flex items-center justify-center shadow-xs">
+              <Users size={16} className="text-amber-400" />
+            </div>
             User & Authority Management
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-amber-200/50 mt-1">
             Manage organizational staff, matrix appointments, hierarchical reporting lines, and access permissions.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto relative z-10">
           <button
             type="button"
             onClick={() => {
               fetchUsers();
               fetchFormOptions();
             }}
-            className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer"
+            className="p-2.5 text-amber-300 hover:text-white bg-[#141518] hover:bg-amber-500/15 rounded-xl border border-amber-500/30 transition cursor-pointer shadow-xs"
             title="Refresh Directory"
           >
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
@@ -228,7 +231,7 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-semibold shadow-xs transition cursor-pointer"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs px-4 py-2.5 rounded-xl font-semibold shadow-[0_0_15px_rgba(212,175,55,0.25)] transition cursor-pointer"
           >
             <UserPlus size={15} />
             <span>+ Add New User</span>
@@ -239,53 +242,53 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
       {/* Feedback banner */}
       {feedback && (
         <div
-          className={`p-3.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition ${
+          className={`p-3.5 rounded-2xl border text-xs font-medium flex items-center gap-2.5 transition shadow-md ${
             feedback.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : 'bg-rose-50 text-rose-800 border-rose-200'
+              ? 'bg-emerald-950/30 text-emerald-300 border-emerald-500/30'
+              : 'bg-rose-950/30 text-rose-300 border-rose-500/30'
           }`}
         >
-          {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          {feedback.type === 'success' ? <CheckCircle2 size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-rose-400" />}
           <span>{feedback.message}</span>
         </div>
       )}
 
       {/* Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className="bg-[#0b0c0e] rounded-3xl border border-amber-400/40 p-4 shadow-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-400/60" />
           <input
             type="text"
             placeholder="Search by name, employee code, email, designation, or branch..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+            className="w-full pl-9 pr-3.5 py-2 text-xs border border-amber-500/30 rounded-xl focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none bg-[#141518] text-neutral-100 placeholder:text-neutral-600 transition"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Filter size={13} />
+          <div className="flex items-center gap-1.5 text-xs text-amber-200/70">
+            <Filter size={13} className="text-amber-400" />
             <span className="font-medium">Role:</span>
           </div>
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none focus:bg-white"
+            className="text-xs bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 font-medium text-amber-200 focus:border-amber-400 outline-none cursor-pointer"
           >
-            <option value="ALL">All Roles</option>
-            <option value="EMPLOYEE">Base Employee</option>
-            <option value="SUPERVISOR">Supervisor</option>
+            <option value="ALL" className="bg-[#0b0c0e] text-neutral-200">All Roles</option>
+            <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+            <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor</option>
             {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) && (
               <>
-                <option value="DEPT_HEAD">Department Head</option>
-                <option value="BUSINESS_ADMIN">Business Admin</option>
+                <option value="DEPT_HEAD" className="bg-[#0b0c0e] text-neutral-200">Department Head</option>
+                <option value="BUSINESS_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Business Admin</option>
               </>
             )}
             {currentUser?.role === 'SUPER_ADMIN' && (
               <>
-                <option value="ADMIN">System Admin</option>
-                <option value="SUPER_ADMIN">Super Admin</option>
+                <option value="ADMIN" className="bg-[#0b0c0e] text-neutral-200">System Admin</option>
+                <option value="SUPER_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Super Admin</option>
               </>
             )}
           </select>
@@ -293,207 +296,323 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none focus:bg-white"
+            className="text-xs bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 font-medium text-amber-200 focus:border-amber-400 outline-none cursor-pointer"
           >
-            <option value="ALL">All Statuses</option>
-            <option value="ACTIVE">Active Accounts</option>
-            <option value="DISABLED">Disabled Accounts</option>
+            <option value="ALL" className="bg-[#0b0c0e] text-neutral-200">All Statuses</option>
+            <option value="ACTIVE" className="bg-[#0b0c0e] text-neutral-200">Active Accounts</option>
+            <option value="DISABLED" className="bg-[#0b0c0e] text-neutral-200">Disabled Accounts</option>
           </select>
         </div>
       </div>
 
-      {/* Directory Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      {/* Directory Container */}
+      <div className="bg-[#0b0c0e] rounded-3xl border border-amber-400/40 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_rgba(245,158,11,0.1)] overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
-            <RefreshCw size={20} className="animate-spin text-blue-500" />
+          <div className="p-12 text-center text-xs text-amber-200/50 flex flex-col items-center justify-center gap-2">
+            <RefreshCw size={20} className="animate-spin text-amber-400" />
             <span>Loading user directory...</span>
           </div>
         ) : filteredUsers.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-1">
-            <Users size={32} className="text-slate-300 stroke-[1.5]" />
-            <p className="font-semibold text-slate-600 mt-2">No users matching search criteria</p>
-            <p className="text-[11px] text-slate-400">Try adjusting your filters or search keywords.</p>
+          <div className="p-12 text-center text-xs text-neutral-500 flex flex-col items-center justify-center gap-1">
+            <Users size={32} className="text-amber-400/40 stroke-[1.5]" />
+            <p className="font-semibold text-white mt-2">No users matching search criteria</p>
+            <p className="text-[11px] text-neutral-500">Try adjusting your filters or search keywords.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="py-3 px-4">Employee</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4">Matrix Branch</th>
-                  <th className="py-3 px-4">Bus & Dept Scope</th>
-                  <th className="py-3 px-4">Reporting To</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {filteredUsers.map((u) => {
-                  const isDeptHead = u.role === 'DEPT_HEAD';
-                  const isBizAdmin = u.role === 'BUSINESS_ADMIN';
-                  const isGlobalAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(u.role);
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs text-neutral-300">
+                <thead className="bg-[#141518] border-b border-amber-500/20 text-amber-400/80 font-semibold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="py-3.5 px-4">Employee</th>
+                    <th className="py-3.5 px-4">Role</th>
+                    <th className="py-3.5 px-4">Matrix Branch</th>
+                    <th className="py-3.5 px-4">Bus & Dept Scope</th>
+                    <th className="py-3.5 px-4">Reporting To</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 font-medium">
+                  {filteredUsers.map((u) => {
+                    const isDeptHead = u.role === 'DEPT_HEAD';
+                    const isBizAdmin = u.role === 'BUSINESS_ADMIN';
+                    const isGlobalAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(u.role);
 
-                  const bizDisplay = isGlobalAdmin || isDeptHead ? 'All Businesses' : (u.business_name || 'No Business');
-                  const deptDisplay = isGlobalAdmin || isBizAdmin ? 'All Departments' : (u.department_name || 'No Department');
+                    const bizDisplay = isGlobalAdmin || isDeptHead ? 'All Businesses' : (u.business_name || 'No Business');
+                    const deptDisplay = isGlobalAdmin || isBizAdmin ? 'All Departments' : (u.department_name || 'No Department');
 
-                  const isEditable = canManageTargetUser(u);
+                    const isEditable = canManageTargetUser(u);
 
-                  return (
-                    <tr key={u.id} className="hover:bg-slate-50/70 transition">
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900">{u.full_name || u.username}</div>
-                        <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
-                          <span>{u.employee_code || `EID${u.id.toString().padStart(3, '0')}`}</span>
-                          <span>•</span>
-                          <span>{u.username}</span>
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${getRoleBadge(u.role)}`}>
-                            {u.role.replace('_', ' ')}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-600 mt-1 font-medium">{u.designation || 'Staff Member'}</div>
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        {isGlobalAdmin || isBizAdmin || isDeptHead ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                            All Matrices
-                          </span>
-                        ) : u.matrix_title && u.matrix_title !== 'No Matrix' ? (
-                          <div className="flex items-center gap-1.5 text-blue-700 font-semibold bg-blue-50/60 border border-blue-100 px-2.5 py-1 rounded-lg w-fit">
-                            <Layers size={13} className="text-blue-500 shrink-0" />
-                            <span>{u.matrix_title}</span>
+                    return (
+                      <tr key={u.id} className="hover:bg-amber-500/[0.03] transition duration-150">
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-white tracking-wide">{u.full_name || u.username}</div>
+                          <div className="text-[11px] text-amber-200/50 font-mono flex items-center gap-2 mt-0.5">
+                            <span>{u.employee_code || `EID${u.id.toString().padStart(3, '0')}`}</span>
+                            <span>•</span>
+                            <span>@{u.username}</span>
                           </div>
-                        ) : (
-                          <span className="text-slate-400 italic">No Matrix</span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <Briefcase size={12} className="text-slate-400 shrink-0" />
-                            {isGlobalAdmin || isDeptHead ? (
-                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                All Businesses
-                              </span>
-                            ) : (
-                              <span className="text-slate-800 font-medium">{bizDisplay}</span>
-                            )}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${getRoleBadge(u.role)}`}>
+                              {u.role.replace('_', ' ')}
+                            </span>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <Building size={12} className="text-slate-400 shrink-0" />
-                            {isGlobalAdmin || isBizAdmin ? (
-                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                All Departments
-                              </span>
-                            ) : (
-                              <span className="text-slate-600 font-medium text-[11px]">{deptDisplay}</span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
+                          <div className="text-[11px] text-neutral-400 mt-1 font-medium">{u.designation || 'Staff Member'}</div>
+                        </td>
 
-                      <td className="py-3.5 px-4">
-                        {u.role === 'SUPERVISOR' && u.dual_reporting_leads?.length > 0 ? (
+                        <td className="py-3.5 px-4">
+                          {isGlobalAdmin || isBizAdmin || isDeptHead ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-xl text-[11px] font-semibold bg-[#141518] text-neutral-300 border border-white/5">
+                              All Matrices
+                            </span>
+                          ) : u.matrix_title && u.matrix_title !== 'No Matrix' ? (
+                            <div className="flex items-center gap-1.5 text-amber-300 font-semibold bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl w-fit">
+                              <Layers size={13} className="text-amber-400 shrink-0" />
+                              <span>{u.matrix_title}</span>
+                            </div>
+                          ) : (
+                            <span className="text-neutral-500 italic">No Matrix</span>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4">
                           <div className="space-y-1">
-                            {u.dual_reporting_leads.map((lead, idx) => (
-                              <div key={idx} className="text-[10px] font-semibold text-slate-700 bg-slate-100 rounded px-1.5 py-0.5 w-fit">
-                                <span className="text-blue-600">{lead.type}:</span> {lead.name}
-                              </div>
-                            ))}
+                            <div className="flex items-center gap-1.5">
+                              <Briefcase size={12} className="text-amber-400/70 shrink-0" />
+                              {isGlobalAdmin || isDeptHead ? (
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-400/40">
+                                  All Businesses
+                                </span>
+                              ) : (
+                                <span className="text-neutral-200 font-medium">{bizDisplay}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Building size={12} className="text-amber-400/70 shrink-0" />
+                              {isGlobalAdmin || isBizAdmin ? (
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-400/40">
+                                  All Departments
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400 font-medium text-[11px]">{deptDisplay}</span>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <div className="text-slate-700 font-semibold">
-                            {u.manager_name || 'Global Operations'}
-                          </div>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        <td className="py-3.5 px-4">
+                          {u.role === 'SUPERVISOR' && u.dual_reporting_leads?.length > 0 ? (
+                            <div className="space-y-1">
+                              {u.dual_reporting_leads.map((lead, idx) => (
+                                <div key={idx} className="text-[10px] font-semibold text-neutral-200 bg-[#141518] rounded-lg px-2 py-0.5 border border-amber-500/15 w-fit">
+                                  <span className="text-amber-400">{lead.type}:</span> {lead.name}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-neutral-200 font-semibold">
+                              {u.manager_name || 'Global Operations'}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border tracking-wider uppercase ${
+                              u.is_active
+                                ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.1)]'
+                                : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
+                            }`}
+                          >
+                            {u.is_active ? (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Active
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Disabled
+                              </>
+                            )}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setInspectProfileUserId(u.id)}
+                              className="p-1.5 text-neutral-400 hover:text-amber-300 hover:bg-amber-500/15 rounded-xl transition cursor-pointer"
+                              title="View Profile Details"
+                            >
+                              <Eye size={15} />
+                            </button>
+
+                            {isEditable && (
+                              <button
+                                type="button"
+                                onClick={() => setEditUserData(u)}
+                                className="p-1.5 text-neutral-400 hover:text-amber-300 hover:bg-amber-500/15 rounded-xl transition cursor-pointer"
+                                title="Edit User Profile"
+                              >
+                                <Edit2 size={15} />
+                              </button>
+                            )}
+
+                            {isEditable && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStatus(u)}
+                                className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition border cursor-pointer ${
+                                  u.is_active
+                                    ? 'border-rose-500/40 text-rose-400 hover:bg-rose-950/40'
+                                    : 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-950/40'
+                                }`}
+                              >
+                                {u.is_active ? 'Disable' : 'Enable'}
+                              </button>
+                            )}
+
+                            {canDeleteUser(u) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u)}
+                                className="p-1.5 text-neutral-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-xl transition border border-transparent hover:border-rose-500/30 cursor-pointer"
+                                title="Delete User Account"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Touch Card Stack (< md) */}
+            <div className="md:hidden divide-y divide-white/5">
+              {filteredUsers.map((u) => {
+                const isDeptHead = u.role === 'DEPT_HEAD';
+                const isBizAdmin = u.role === 'BUSINESS_ADMIN';
+                const isGlobalAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(u.role);
+
+                const bizDisplay = isGlobalAdmin || isDeptHead ? 'All Businesses' : (u.business_name || 'No Business');
+                const deptDisplay = isGlobalAdmin || isBizAdmin ? 'All Departments' : (u.department_name || 'No Department');
+
+                const isEditable = canManageTargetUser(u);
+
+                return (
+                  <div key={u.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-white text-sm">{u.full_name || u.username}</h4>
+                        <p className="text-[11px] text-amber-200/50 font-mono">
+                          {u.employee_code || `EID${u.id.toString().padStart(3, '0')}`} • @{u.username}
+                        </p>
+                      </div>
+
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider shrink-0 ${
+                          u.is_active
+                            ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
+                            : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
+                        }`}
+                      >
+                        {u.is_active ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${getRoleBadge(u.role)}`}>
+                        {u.role.replace('_', ' ')}
+                      </span>
+                      <span className="text-[11px] text-neutral-300 font-medium">
+                        {u.designation || 'Staff Member'}
+                      </span>
+                    </div>
+
+                    {/* Scope details */}
+                    <div className="bg-[#141518] p-3 rounded-2xl border border-amber-500/15 space-y-1.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <Layers size={13} className="text-amber-400 shrink-0" />
+                        <span className="text-neutral-400">Matrix:</span>
+                        <span className="text-neutral-200 font-medium truncate">
+                          {isGlobalAdmin || isBizAdmin || isDeptHead ? 'All Matrices' : (u.matrix_title || 'No Matrix')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Briefcase size={13} className="text-amber-400 shrink-0" />
+                        <span className="text-neutral-400">Scope:</span>
+                        <span className="text-neutral-200 font-medium truncate">
+                          {bizDisplay} • {deptDisplay}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <UserCheck size={13} className="text-amber-400 shrink-0" />
+                        <span className="text-neutral-400">Reports To:</span>
+                        <span className="text-neutral-200 font-medium truncate">
+                          {u.manager_name || 'Global Operations'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions row */}
+                    <div className="flex items-center justify-between pt-1 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInspectProfileUserId(u.id)}
+                        className="flex-1 py-1.5 bg-[#141518] hover:bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-xl font-medium flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Eye size={13} /> View
+                      </button>
+
+                      {isEditable && (
+                        <button
+                          type="button"
+                          onClick={() => setEditUserData(u)}
+                          className="flex-1 py-1.5 bg-[#141518] hover:bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-xl font-medium flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Edit2 size={13} /> Edit
+                        </button>
+                      )}
+
+                      {isEditable && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(u)}
+                          className={`flex-1 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
                             u.is_active
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                              ? 'border-rose-500/40 text-rose-400 bg-rose-950/20'
+                              : 'border-emerald-500/40 text-emerald-400 bg-emerald-950/20'
                           }`}
                         >
-                          {u.is_active ? (
-                            <>
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
-                            </>
-                          ) : (
-                            <>
-                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Disabled
-                            </>
-                          )}
-                        </span>
-                      </td>
+                          {u.is_active ? 'Disable' : 'Enable'}
+                        </button>
+                      )}
 
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Profile Inspect Trigger */}
-                          <button
-                            type="button"
-                            onClick={() => setInspectProfileUserId(u.id)}
-                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
-                            title="View Profile Details"
-                          >
-                            <Eye size={15} />
-                          </button>
-
-                          {/* Edit Action: Only shown if user is strictly lower-tier */}
-                          {isEditable && (
-                            <button
-                              type="button"
-                              onClick={() => setEditUserData(u)}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
-                              title="Edit User Profile"
-                            >
-                              <Edit2 size={15} />
-                            </button>
-                          )}
-
-                          {/* Status Toggle Action: Only allowed for strictly lower-tier */}
-                          {isEditable && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleStatus(u)}
-                              className={`px-2 py-1 rounded text-[10px] font-bold transition border cursor-pointer ${
-                                u.is_active
-                                  ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                                  : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
-                              }`}
-                            >
-                              {u.is_active ? 'Disable' : 'Enable'}
-                            </button>
-                          )}
-
-                          {/* Delete Action: Admins/Super Admins managing lower-tier */}
-                          {canDeleteUser(u) && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteUser(u)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition border border-transparent hover:border-rose-200 cursor-pointer"
-                              title="Delete User Account"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      {canDeleteUser(u) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUser(u)}
+                          className="p-2 text-rose-400 bg-rose-950/30 border border-rose-500/40 rounded-xl cursor-pointer"
+                          title="Delete User"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
@@ -543,7 +662,7 @@ export default function UserManagementView({ currentUser, onInspectUser }) {
 }
 
 // ==========================================
-// CREATE USER MODAL (ROLE-ADAPTIVE & LOWER-TIER RESTRICTED)
+// CREATE USER MODAL
 // ==========================================
 function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess }) {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -623,133 +742,132 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full my-6 overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+      <div className="bg-[#0b0c0e] rounded-t-3xl sm:rounded-3xl border border-amber-400/50 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),0_0_30px_rgba(212,175,55,0.12)] max-w-xl w-full overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh] animate-in fade-in duration-200">
+        <div className="p-4 sm:p-5 bg-[#141518] border-b border-amber-500/20 flex justify-between items-center">
           <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <UserPlus size={18} className="text-blue-600" />
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <UserPlus size={18} className="text-amber-400" />
               Provision New Staff Account
             </h2>
-            <p className="text-[11px] text-slate-500">Assign role and placement strictly within your administrative jurisdiction.</p>
+            <p className="text-[11px] text-amber-200/50">Assign role and placement strictly within administrative scope.</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 cursor-pointer">
+          <button onClick={onClose} className="p-1 rounded-xl text-neutral-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
         {errorMsg && (
-          <div className="m-4 mb-0 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 font-medium">
-            <AlertCircle size={15} className="shrink-0" />
+          <div className="m-4 mb-0 p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2 font-medium">
+            <AlertCircle size={15} className="shrink-0 text-rose-400" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Username *</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Username *</label>
               <input
                 type="text"
                 required
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value.trim() })}
                 placeholder="e.g. john_doe"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white placeholder:text-neutral-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Corporate Email *</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Corporate Email *</label>
               <input
                 type="email"
                 required
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value.trim() })}
                 placeholder="john@company.com"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white placeholder:text-neutral-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Full Name</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Full Name</label>
               <input
                 type="text"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                 placeholder="John Doe"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white placeholder:text-neutral-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Initial Password</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Initial Password</label>
               <input
                 type="text"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 placeholder="Default: TempPass@123"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white placeholder:text-neutral-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Designation</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Designation</label>
               <input
                 type="text"
                 value={formData.designation}
                 onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
                 placeholder="e.g. Operations Specialist"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white placeholder:text-neutral-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Date of Joining</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Date of Joining</label>
               <input
                 type="date"
                 value={formData.date_of_joining}
                 onChange={(e) => setFormData({ ...formData, date_of_joining: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Assigned Role Tier *</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Assigned Role Tier *</label>
               <select
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value, matrix_id: '', business_id: '', department_id: '' })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-amber-200 font-medium focus:border-amber-400 outline-none cursor-pointer"
               >
-                {/* Strict Role Options: Can only create lower-tier roles */}
                 {currentUser?.role === 'SUPERVISOR' && (
-                  <option value="EMPLOYEE">Base Employee</option>
+                  <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
                 )}
 
                 {['BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser?.role) && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
                   </>
                 )}
 
                 {currentUser?.role === 'ADMIN' && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
-                    <option value="BUSINESS_ADMIN">Business Admin</option>
-                    <option value="DEPT_HEAD">Department Head</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
+                    <option value="BUSINESS_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Business Admin</option>
+                    <option value="DEPT_HEAD" className="bg-[#0b0c0e] text-neutral-200">Department Head</option>
                   </>
                 )}
 
                 {currentUser?.role === 'SUPER_ADMIN' && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
-                    <option value="BUSINESS_ADMIN">Business Admin</option>
-                    <option value="DEPT_HEAD">Department Head</option>
-                    <option value="ADMIN">System Admin</option>
-                    <option value="SUPER_ADMIN">Super Admin</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
+                    <option value="BUSINESS_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Business Admin</option>
+                    <option value="DEPT_HEAD" className="bg-[#0b0c0e] text-neutral-200">Department Head</option>
+                    <option value="ADMIN" className="bg-[#0b0c0e] text-neutral-200">System Admin</option>
+                    <option value="SUPER_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Super Admin</option>
                   </>
                 )}
               </select>
@@ -757,23 +875,23 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
           </div>
 
           {/* DYNAMIC ROLE SCOPING INPUTS */}
-          <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+          <div className="bg-[#141518] p-3.5 rounded-2xl border border-amber-500/20 space-y-3">
             {(formData.role === 'EMPLOYEE' || formData.role === 'SUPERVISOR') && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1 flex items-center justify-between">
+                <label className="font-bold text-amber-300 block mb-1 flex items-center justify-between">
                   <span>Operational Matrix Branch {formData.role === 'SUPERVISOR' ? '(To Lead as Incharge)' : '*'}</span>
                   {selectedMatrix && (
-                    <span className="text-[10px] text-blue-600 font-medium">Auto-populates relationships</span>
+                    <span className="text-[10px] text-amber-400 font-medium">Auto-populates relationships</span>
                   )}
                 </label>
                 <select
                   value={formData.matrix_id}
                   onChange={(e) => setFormData({ ...formData, matrix_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer"
                 >
-                  <option value="">No Matrix (Unassigned)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Matrix (Unassigned)</option>
                   {formOptions.matrices.map((m) => (
-                    <option key={m.id} value={m.id}>
+                    <option key={m.id} value={m.id} className="bg-[#0b0c0e] text-neutral-200">
                       {m.title}
                     </option>
                   ))}
@@ -781,43 +899,43 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
 
                 {selectedMatrix ? (
                   <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">Business Scope</span>
-                      <strong className="text-slate-800 text-[11px] truncate block">{selectedMatrix.business_name}</strong>
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">Business Scope</span>
+                      <strong className="text-white text-[11px] truncate block">{selectedMatrix.business_name}</strong>
                     </div>
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">Department</span>
-                      <strong className="text-slate-800 text-[11px] truncate block">{selectedMatrix.department_name}</strong>
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">Department</span>
+                      <strong className="text-white text-[11px] truncate block">{selectedMatrix.department_name}</strong>
                     </div>
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">
                         {formData.role === 'SUPERVISOR' ? 'Dual Lead Scope' : 'Direct Supervisor'}
                       </span>
-                      <strong className="text-blue-700 text-[11px] truncate block">
+                      <strong className="text-amber-300 text-[11px] truncate block">
                         {formData.role === 'SUPERVISOR' ? 'Biz Admin + Dept Admin' : selectedMatrix.supervisor_name}
                       </strong>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[10px] text-slate-400 mt-1 italic">
+                  <p className="text-[10px] text-neutral-500 mt-1 italic">
                     Selecting "No Matrix" leaves business, department, and direct reporting manager unassigned.
                   </p>
                 )}
               </div>
             )}
 
-            {/* CASE 2: BUSINESS ADMIN */}
+            {/* BUSINESS ADMIN */}
             {formData.role === 'BUSINESS_ADMIN' && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1">Direct Business Jurisdiction</label>
+                <label className="font-bold text-amber-300 block mb-1">Direct Business Jurisdiction</label>
                 <select
                   value={formData.business_id}
                   onChange={(e) => setFormData({ ...formData, business_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer"
                 >
-                  <option value="">No Business (Unassigned - Assign Later)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Business (Unassigned - Assign Later)</option>
                   {availableBusinesses.map((b) => (
-                    <option key={b.id} value={b.id}>
+                    <option key={b.id} value={b.id} className="bg-[#0b0c0e] text-neutral-200">
                       {b.name} ({b.code})
                     </option>
                   ))}
@@ -825,18 +943,18 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
               </div>
             )}
 
-            {/* CASE 3: DEPT HEAD */}
+            {/* DEPT HEAD */}
             {formData.role === 'DEPT_HEAD' && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1">Functional Department Scope</label>
+                <label className="font-bold text-amber-300 block mb-1">Functional Department Scope</label>
                 <select
                   value={formData.department_id}
                   onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer"
                 >
-                  <option value="">No Department (Unassigned - Assign Later)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Department (Unassigned - Assign Later)</option>
                   {availableDepartments.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option key={d.id} value={d.id} className="bg-[#0b0c0e] text-neutral-200">
                       {d.name} ({d.code})
                     </option>
                   ))}
@@ -845,8 +963,8 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
             )}
 
             {['ADMIN', 'SUPER_ADMIN'].includes(formData.role) && (
-              <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-blue-900 text-[11px] font-medium flex items-center gap-2">
-                <Shield size={16} className="text-blue-600 shrink-0" />
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-amber-200 text-[11px] font-medium flex items-center gap-2">
+                <Shield size={16} className="text-amber-400 shrink-0" />
                 <span>Admins have global, unrestricted visibility across all businesses, departments, and matrix branches.</span>
               </div>
             )}
@@ -854,37 +972,37 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
 
           <div className="grid grid-cols-2 gap-3 pt-2">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Shift Start Time</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Shift Start Time</label>
               <input
                 type="time"
                 value={formData.shift_start_time}
                 onChange={(e) => setFormData({ ...formData, shift_start_time: e.target.value })}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Shift End Time</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Shift End Time</label>
               <input
                 type="time"
                 value={formData.shift_end_time}
                 onChange={(e) => setFormData({ ...formData, shift_end_time: e.target.value })}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
               />
             </div>
           </div>
 
-          <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 -mx-5 -mb-5 mt-4">
+          <div className="p-4 bg-[#141518] border-t border-amber-500/20 flex justify-end gap-2.5 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 mt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-100 transition cursor-pointer"
+              className="px-4 py-2 border border-amber-500/30 text-neutral-300 hover:text-white rounded-xl font-semibold hover:bg-white/[0.04] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer"
+              className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold rounded-xl shadow-[0_0_15px_rgba(212,175,55,0.25)] transition disabled:opacity-50 cursor-pointer"
             >
               {submitting ? 'Provisioning...' : 'Confirm & Create User'}
             </button>
@@ -896,7 +1014,7 @@ function CreateUserModal({ isOpen, onClose, formOptions, currentUser, onSuccess 
 }
 
 // ==========================================
-// EDIT USER MODAL (RETAINS EXISTING JOINING DATE & ENFORCES LOWER TIER)
+// EDIT USER MODAL
 // ==========================================
 function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSuccess }) {
   const existingDateStr = user?.date_of_joining ? String(user.date_of_joining).split('T')[0] : '';
@@ -979,131 +1097,130 @@ function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSucc
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full my-6 overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+      <div className="bg-[#0b0c0e] rounded-t-3xl sm:rounded-3xl border border-amber-400/50 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),0_0_30px_rgba(212,175,55,0.12)] max-w-xl w-full overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh] animate-in fade-in duration-200">
+        <div className="p-4 sm:p-5 bg-[#141518] border-b border-amber-500/20 flex justify-between items-center">
           <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Edit2 size={16} className="text-blue-600" />
-              Edit User Profile: {user.full_name || user.username}
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Edit2 size={16} className="text-amber-400" />
+              Edit Profile: {user.full_name || user.username}
             </h2>
-            <p className="text-[11px] text-slate-500 font-mono">Employee Code: {user.employee_code || `EID${user.id}`}</p>
+            <p className="text-[11px] text-amber-200/50 font-mono">Employee Code: {user.employee_code || `EID${user.id}`}</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 cursor-pointer">
+          <button onClick={onClose} className="p-1 rounded-xl text-neutral-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
         {errorMsg && (
-          <div className="m-4 mb-0 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 font-medium">
-            <AlertCircle size={15} className="shrink-0" />
+          <div className="m-4 mb-0 p-3 bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2 font-medium">
+            <AlertCircle size={15} className="shrink-0 text-rose-400" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Corporate Email *</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Corporate Email *</label>
               <input
                 type="email"
                 required
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value.trim() })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Full Name</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Full Name</label>
               <input
                 type="text"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Designation</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Designation</label>
               <input
                 type="text"
                 value={formData.designation}
                 onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Date of Joining</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Date of Joining</label>
               <input
                 type="date"
                 value={formData.date_of_joining}
                 onChange={(e) => setFormData({ ...formData, date_of_joining: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none transition"
               />
             </div>
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Role Tier</label>
+              <label className="font-semibold text-amber-300/90 block mb-1">Role Tier</label>
               <select
                 disabled={currentUser?.role === 'SUPERVISOR'}
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value, matrix_id: '', business_id: '', department_id: '' })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium disabled:bg-slate-100"
+                className="w-full bg-[#141518] border border-amber-500/30 rounded-xl px-3 py-2 text-amber-200 font-medium focus:border-amber-400 outline-none cursor-pointer disabled:opacity-50"
               >
-                {/* Strict lower-tier editing options */}
                 {currentUser?.role === 'SUPERVISOR' && (
-                  <option value="EMPLOYEE">Base Employee</option>
+                  <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
                 )}
 
                 {['BUSINESS_ADMIN', 'DEPT_HEAD'].includes(currentUser?.role) && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
                   </>
                 )}
 
                 {currentUser?.role === 'ADMIN' && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
-                    <option value="BUSINESS_ADMIN">Business Admin</option>
-                    <option value="DEPT_HEAD">Department Head</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
+                    <option value="BUSINESS_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Business Admin</option>
+                    <option value="DEPT_HEAD" className="bg-[#0b0c0e] text-neutral-200">Department Head</option>
                   </>
                 )}
 
                 {currentUser?.role === 'SUPER_ADMIN' && (
                   <>
-                    <option value="EMPLOYEE">Base Employee</option>
-                    <option value="SUPERVISOR">Supervisor (Matrix Incharge)</option>
-                    <option value="BUSINESS_ADMIN">Business Admin</option>
-                    <option value="DEPT_HEAD">Department Head</option>
-                    <option value="ADMIN">System Admin</option>
-                    <option value="SUPER_ADMIN">Super Admin</option>
+                    <option value="EMPLOYEE" className="bg-[#0b0c0e] text-neutral-200">Base Employee</option>
+                    <option value="SUPERVISOR" className="bg-[#0b0c0e] text-neutral-200">Supervisor (Matrix Incharge)</option>
+                    <option value="BUSINESS_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Business Admin</option>
+                    <option value="DEPT_HEAD" className="bg-[#0b0c0e] text-neutral-200">Department Head</option>
+                    <option value="ADMIN" className="bg-[#0b0c0e] text-neutral-200">System Admin</option>
+                    <option value="SUPER_ADMIN" className="bg-[#0b0c0e] text-neutral-200">Super Admin</option>
                   </>
                 )}
               </select>
             </div>
           </div>
 
-          <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+          <div className="bg-[#141518] p-3.5 rounded-2xl border border-amber-500/20 space-y-3">
             {(formData.role === 'EMPLOYEE' || formData.role === 'SUPERVISOR') && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1 flex items-center justify-between">
+                <label className="font-bold text-amber-300 block mb-1 flex items-center justify-between">
                   <span>Operational Matrix Branch {formData.role === 'SUPERVISOR' ? '(Leading as Incharge)' : ''}</span>
                   {selectedMatrix && (
-                    <span className="text-[10px] text-blue-600 font-medium">Cascades to members</span>
+                    <span className="text-[10px] text-amber-400 font-medium">Cascades to members</span>
                   )}
                 </label>
                 <select
                   disabled={currentUser?.role === 'SUPERVISOR'}
                   value={formData.matrix_id}
                   onChange={(e) => setFormData({ ...formData, matrix_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium disabled:bg-slate-100"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer disabled:opacity-50"
                 >
-                  <option value="">No Matrix (Unassigned)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Matrix (Unassigned)</option>
                   {formOptions.matrices.map((m) => (
-                    <option key={m.id} value={m.id}>
+                    <option key={m.id} value={m.id} className="bg-[#0b0c0e] text-neutral-200">
                       {m.title}
                     </option>
                   ))}
@@ -1111,17 +1228,17 @@ function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSucc
 
                 {selectedMatrix && (
                   <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">Business</span>
-                      <strong className="text-slate-800 text-[11px] truncate block">{selectedMatrix.business_name}</strong>
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">Business</span>
+                      <strong className="text-white text-[11px] truncate block">{selectedMatrix.business_name}</strong>
                     </div>
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">Department</span>
-                      <strong className="text-slate-800 text-[11px] truncate block">{selectedMatrix.department_name}</strong>
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">Department</span>
+                      <strong className="text-white text-[11px] truncate block">{selectedMatrix.department_name}</strong>
                     </div>
-                    <div className="bg-white border border-slate-200 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block font-medium">Direct Lead</span>
-                      <strong className="text-blue-700 text-[11px] truncate block">
+                    <div className="bg-[#0b0c0e] border border-amber-500/15 p-2.5 rounded-xl">
+                      <span className="text-[10px] text-neutral-400 block font-medium">Direct Lead</span>
+                      <strong className="text-amber-300 text-[11px] truncate block">
                         {formData.role === 'SUPERVISOR' ? 'Dual Lead Scope' : selectedMatrix.supervisor_name}
                       </strong>
                     </div>
@@ -1132,15 +1249,15 @@ function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSucc
 
             {formData.role === 'BUSINESS_ADMIN' && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1">Direct Business Jurisdiction</label>
+                <label className="font-bold text-amber-300 block mb-1">Direct Business Jurisdiction</label>
                 <select
                   value={formData.business_id}
                   onChange={(e) => setFormData({ ...formData, business_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer"
                 >
-                  <option value="">No Business (Unassigned)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Business (Unassigned)</option>
                   {availableBusinesses.map((b) => (
-                    <option key={b.id} value={b.id}>
+                    <option key={b.id} value={b.id} className="bg-[#0b0c0e] text-neutral-200">
                       {b.name} ({b.code})
                     </option>
                   ))}
@@ -1150,15 +1267,15 @@ function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSucc
 
             {formData.role === 'DEPT_HEAD' && (
               <div>
-                <label className="font-bold text-slate-800 block mb-1">Functional Department Scope</label>
+                <label className="font-bold text-amber-300 block mb-1">Functional Department Scope</label>
                 <select
                   value={formData.department_id}
                   onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                  className="w-full bg-[#0b0c0e] border border-amber-500/30 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-400 outline-none cursor-pointer"
                 >
-                  <option value="">No Department (Unassigned)</option>
+                  <option value="" className="bg-[#0b0c0e] text-neutral-400">No Department (Unassigned)</option>
                   {availableDepartments.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option key={d.id} value={d.id} className="bg-[#0b0c0e] text-neutral-200">
                       {d.name} ({d.code})
                     </option>
                   ))}
@@ -1167,36 +1284,36 @@ function EditUserModal({ isOpen, user, onClose, formOptions, currentUser, onSucc
             )}
           </div>
 
-          <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+          <div className="pt-2 flex items-center justify-between border-t border-amber-500/15">
             <div>
-              <span className="font-semibold text-slate-800 block">Account Access Status</span>
-              <p className="text-[11px] text-slate-400">Disabled accounts cannot authenticate or access workspaces.</p>
+              <span className="font-semibold text-white block">Account Access Status</span>
+              <p className="text-[11px] text-neutral-400">Disabled accounts cannot authenticate or access workspaces.</p>
             </div>
             <button
               type="button"
               onClick={() => setFormData({ ...formData, is_active: !formData.is_active })}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition border cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
                 formData.is_active
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                  : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                  ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/40'
+                  : 'bg-rose-950/40 text-rose-400 border-rose-500/40'
               }`}
             >
               {formData.is_active ? 'Active' : 'Disabled'}
             </button>
           </div>
 
-          <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 -mx-5 -mb-5 mt-4">
+          <div className="p-4 bg-[#141518] border-t border-amber-500/20 flex justify-end gap-2.5 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 mt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-100 transition cursor-pointer"
+              className="px-4 py-2 border border-amber-500/30 text-neutral-300 hover:text-white rounded-xl font-semibold hover:bg-white/[0.04] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer"
+              className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold rounded-xl shadow-[0_0_15px_rgba(212,175,55,0.25)] transition disabled:opacity-50 cursor-pointer"
             >
               {submitting ? 'Saving...' : 'Save Profile Changes'}
             </button>

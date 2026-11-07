@@ -191,10 +191,10 @@ export default function App() {
 
   return (
     /* Outer Screen Shell: 
-       - Increased padding for md and below screens (p-3 sm:p-4), kept identical on desktop (md:p-[1.25%])
-       - Uses dynamic viewport height (h-[100dvh]) and overscroll-none to lock mobile browser window scrolling
+       - Lightened slate-zinc grey shaded background (#22252c / #1b1e24)
+       - Provides clear contrast separation against the jet-black obsidian cards (#0b0c0e) and sidebars
     */
-    <div className="h-screen h-[100dvh] w-screen overflow-hidden overscroll-none bg-slate-100/90 flex font-sans text-slate-800 p-3 sm:p-4 md:p-[1.25%] gap-2.5 md:gap-4 box-border">
+    <div className="h-screen h-[100dvh] w-screen overflow-hidden overscroll-none bg-[#20232a] bg-[radial-gradient(ellipse_at_top,_#282c35,_#1b1d22)] flex font-sans text-neutral-200 p-3 sm:p-4 md:p-[1.25%] gap-2.5 md:gap-4 box-border">
       {/* ===================== SIDEBAR ===================== */}
       <Sidebar
         currentUser={currentUser}
@@ -227,11 +227,7 @@ export default function App() {
           isSidebarMinimized={isSidebarMinimized}
         />
 
-        {/* Scrollable Content Body: 
-            - pt-20/24 provides clearance under TopNavbar
-            - overscroll-y-contain traps vertical scrolling inside this container on mobile
-            - [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden hides the scrollbar across all engines
-        */}
+        {/* Scrollable Content Body */}
         <main className="w-full h-full pt-20 md:pt-24 space-y-6 flex-1 overflow-y-auto overscroll-y-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           
           {/* TAB 1: OVERVIEW LANDING & COCKPIT */}
@@ -247,9 +243,9 @@ export default function App() {
               ) : (
                 <>
                   {isMidTierManager && (
-                    <div className="flex justify-between items-center bg-white/90 backdrop-blur-xs p-3 rounded-2xl border border-slate-200/80 shadow-2xs w-full">
-                      <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
-                        <span className="font-mono text-[10px] uppercase font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded">
+                    <div className="flex justify-between items-center bg-[#0b0c0e] p-3 rounded-2xl border border-amber-500/20 shadow-2xl w-full">
+                      <div className="text-xs font-semibold text-neutral-300 flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
                           {role.replace('_', ' ')} PERSPECTIVE
                         </span>
                       </div>
@@ -259,8 +255,8 @@ export default function App() {
                           onClick={() => setViewMode('team')}
                           className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
                             viewMode === 'team'
-                              ? 'bg-slate-900 text-white shadow-2xs font-bold'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold shadow-[0_0_15px_rgba(212,175,55,0.25)]'
+                              : 'bg-[#141518] text-neutral-400 hover:text-amber-200 hover:border-amber-500/20 border border-transparent'
                           }`}
                         >
                           <Users size={13} /> Team Oversight
@@ -270,8 +266,8 @@ export default function App() {
                           onClick={() => setViewMode('self')}
                           className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
                             viewMode === 'self'
-                              ? 'bg-slate-900 text-white shadow-2xs font-bold'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-black font-bold shadow-[0_0_15px_rgba(212,175,55,0.25)]'
+                              : 'bg-[#141518] text-neutral-400 hover:text-amber-200 hover:border-amber-500/20 border border-transparent'
                           }`}
                         >
                           <User size={13} /> My Personal Work
@@ -289,53 +285,58 @@ export default function App() {
 
                   {renderSelfCockpit && (
                     <div className="space-y-6 w-full">
+                      {/* Metric Stat Cards */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                        <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
-                          pendingAcceptRejectCount > 0 ? 'bg-amber-50/70 border-amber-200' : 'bg-white/90 border-slate-200/80'
+                        <div className={`p-4 sm:p-5 rounded-3xl border shadow-2xl flex items-center justify-between transition ${
+                          pendingAcceptRejectCount > 0 
+                            ? 'bg-gradient-to-b from-[#181510] to-[#0f0e0c] border-amber-500/35 shadow-[0_0_20px_rgba(245,158,11,0.08)]' 
+                            : 'bg-[#0b0c0e] border-amber-500/20'
                         }`}>
                           <div>
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            <span className="text-[11px] font-bold text-amber-400/80 uppercase tracking-wider block">
                               Pending Accept / Reject
                             </span>
-                            <div className={`text-2xl font-bold mt-1 ${pendingAcceptRejectCount > 0 ? 'text-amber-700 font-mono' : 'text-slate-900'}`}>
+                            <div className={`text-2xl font-bold mt-1 ${pendingAcceptRejectCount > 0 ? 'text-amber-300 font-mono drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]' : 'text-white'}`}>
                               {pendingAcceptRejectCount}
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">Incoming tasks awaiting action</p>
+                            <p className="text-[11px] text-neutral-500 mt-0.5">Incoming tasks awaiting action</p>
                           </div>
-                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${pendingAcceptRejectCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-50 text-slate-400'}`}>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${pendingAcceptRejectCount > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-[#141518] text-amber-400/70 border border-amber-500/15'}`}>
                             <Inbox size={20} />
                           </div>
                         </div>
 
-                        <div className="bg-white/90 p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
+                        <div className="bg-[#0b0c0e] p-4 sm:p-5 rounded-3xl border border-amber-500/20 shadow-2xl flex items-center justify-between">
                           <div>
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <span className="text-[11px] font-bold text-amber-400/80 uppercase tracking-wider">
                               Today Commits / Active
                             </span>
-                            <div className="text-2xl font-bold text-slate-900 mt-1">
-                              <span className="text-blue-600 font-mono">{activeCommitsTodayCount}</span>
-                              <span className="text-slate-400 text-lg font-normal font-mono"> / {activeSelfTasks.length}</span>
+                            <div className="text-2xl font-bold text-white mt-1">
+                              <span className="text-amber-300 font-mono drop-shadow-[0_0_8px_rgba(212,175,55,0.25)]">{activeCommitsTodayCount}</span>
+                              <span className="text-neutral-500 text-lg font-normal font-mono"> / {activeSelfTasks.length}</span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">Committed today vs total backlog</p>
+                            <p className="text-[11px] text-neutral-500 mt-0.5">Committed today vs total backlog</p>
                           </div>
-                          <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                          <div className="w-11 h-11 rounded-2xl bg-[#141518] text-amber-400 border border-amber-500/15 flex items-center justify-center">
                             <CalendarClock size={20} />
                           </div>
                         </div>
 
-                        <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
-                          overdueTasksCount > 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-white/90 border-slate-200/80'
+                        <div className={`p-4 sm:p-5 rounded-3xl border shadow-2xl flex items-center justify-between transition ${
+                          overdueTasksCount > 0 
+                            ? 'bg-gradient-to-b from-rose-950/20 to-[#0b0c0e] border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.08)]' 
+                            : 'bg-[#0b0c0e] border-amber-500/20'
                         }`}>
                           <div>
-                            <span className={`text-[11px] font-bold uppercase tracking-wider block ${overdueTasksCount > 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+                            <span className={`text-[11px] font-bold uppercase tracking-wider block ${overdueTasksCount > 0 ? 'text-rose-400' : 'text-amber-400/80'}`}>
                               Overdue Tasks
                             </span>
-                            <div className={`text-2xl font-bold mt-1 ${overdueTasksCount > 0 ? 'text-rose-700 font-mono' : 'text-slate-900'}`}>
+                            <div className={`text-2xl font-bold mt-1 ${overdueTasksCount > 0 ? 'text-rose-400 font-mono drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]' : 'text-white'}`}>
                               {overdueTasksCount}
                             </div>
-                            <p className={`text-[11px] mt-0.5 ${overdueTasksCount > 0 ? 'text-rose-600/80' : 'text-slate-400'}`}>Personal tasks past deadline</p>
+                            <p className={`text-[11px] mt-0.5 ${overdueTasksCount > 0 ? 'text-rose-400/80' : 'text-neutral-500'}`}>Personal tasks past deadline</p>
                           </div>
-                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${overdueTasksCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-50 text-slate-400'}`}>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${overdueTasksCount > 0 ? 'bg-rose-950/40 text-rose-400 border border-rose-500/30' : 'bg-[#141518] text-amber-400/70 border border-amber-500/15'}`}>
                             <Clock size={20} />
                           </div>
                         </div>
@@ -348,18 +349,19 @@ export default function App() {
                         currentUser={currentUser}
                       />
 
+                      {/* Capacity Notice */}
                       {isEmployeeIdle && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between w-full">
+                        <div className="bg-[#181510] border border-amber-500/35 rounded-3xl p-4 text-xs text-amber-200/90 flex items-center justify-between w-full shadow-[0_0_20px_rgba(212,175,55,0.06)]">
                           <div className="flex items-center gap-2.5">
-                            <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                            <AlertCircle size={18} className="text-amber-400 shrink-0" />
                             <span>
-                              <strong>Capacity Notice:</strong> You are marked On-Duty but currently have <strong>0 active tasks committed</strong> for today. Add tasks from your backlog using the planner.
+                              <strong className="text-amber-300">Capacity Notice:</strong> You are marked On-Duty but currently have <strong>0 active tasks committed</strong> for today. Add tasks from your backlog using the planner.
                             </span>
                           </div>
                           <button
                             type="button"
                             onClick={() => setIsPlannerOpen(true)}
-                            className="text-xs font-bold bg-amber-200 hover:bg-amber-300 px-3 py-1.5 rounded-xl text-amber-900 transition shrink-0 cursor-pointer"
+                            className="text-xs font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black px-3.5 py-1.5 rounded-xl transition shrink-0 cursor-pointer shadow-[0_0_12px_rgba(212,175,55,0.25)]"
                           >
                             Open Planner
                           </button>
@@ -368,11 +370,11 @@ export default function App() {
 
                       <div className="space-y-3 w-full">
                         <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-bold text-slate-900">Active Tasks Backlog (Recent 5)</h3>
+                          <h3 className="text-sm font-bold text-white tracking-wide">Active Tasks Backlog (Recent 5)</h3>
                           <button
                             type="button"
                             onClick={() => setActiveTab('tasks')}
-                            className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1"
+                            className="text-xs text-amber-300 hover:text-amber-200 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1 transition"
                           >
                             View All ({tasks.length}) <ChevronRight size={13} />
                           </button>
@@ -439,8 +441,8 @@ export default function App() {
           {activeTab === 'tree' && isPrivileged && (
             <div className="space-y-4 w-full">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Reporting Hierarchy Tree</h3>
-                <p className="text-xs text-slate-500">Downstream supervisor reporting structures</p>
+                <h3 className="text-base font-bold text-white tracking-wide">Reporting Hierarchy Tree</h3>
+                <p className="text-xs text-amber-200/50">Downstream supervisor reporting structures</p>
               </div>
               <OrgTreeViewer />
             </div>
