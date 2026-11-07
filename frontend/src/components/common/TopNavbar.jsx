@@ -1,12 +1,15 @@
-import  { useState, useEffect } from 'react';
+// frontend/src/components/common/TopNavbar.jsx
+
+import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import AttendanceToggle from '../AttendanceToggle'
 import NotificationDrawer from '../NotificationDrawer';
-import {
-  Menu,
-  Calendar,
-  PlusCircle,
+import { 
+  Menu, 
+  Calendar, 
+  Plus, 
   Bell,
+  UserCheck, 
+  UserX
 } from 'lucide-react';
 
 export default function TopNavbar({
@@ -16,11 +19,12 @@ export default function TopNavbar({
   onOpenPlanner,
   onOpenCreateTask,
   onAttendanceChanged,
+  isSidebarMinimized = false,
 }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [togglingDuty, setTogglingDuty] = useState(false);
 
-  // Poll unread notification count
   const fetchUnreadCount = async () => {
     try {
       const res = await api.get('/notifications/unread-count/');
@@ -33,111 +37,132 @@ export default function TopNavbar({
   useEffect(() => {
     if (currentUser) {
       fetchUnreadCount();
-      const interval = setInterval(fetchUnreadCount, 30000); // 30s polling
+      const interval = setInterval(fetchUnreadCount, 30000);
       return () => clearInterval(interval);
     }
   }, [currentUser]);
 
   if (!currentUser) return null;
 
-  // Format display name: Capitalized, maximum 2 words
-  const getShortName = () => {
-    const raw = (currentUser.full_name && currentUser.full_name.trim().length > 0)
-      ? currentUser.full_name
-      : (currentUser.username || 'User');
-    return raw
-      .split(' ')
-      .filter(Boolean)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .slice(0, 2)
-      .join(' ');
+  const handleToggleDuty = async () => {
+    setTogglingDuty(true);
+    try {
+      const res = await api.post('/auth/attendance/today/', {
+        is_present: !isOnDuty
+      });
+      if (onAttendanceChanged) {
+        onAttendanceChanged(res.data.is_present);
+      }
+    } catch (err) {
+      console.error('Failed to update attendance status:', err);
+    } finally {
+      setTogglingDuty(false);
+    }
   };
 
-  const roleBadgeStyles = {
-    SUPER_ADMIN: 'bg-rose-50 text-rose-700 border-rose-200',
-    DEPT_HEAD: 'bg-purple-50 text-purple-700 border-purple-200',
-    BUSINESS_ADMIN: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-    ADMIN: 'bg-amber-50 text-amber-700 border-amber-200',
-    SUPERVISOR: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-    EMPLOYEE: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  };
+  const role = currentUser?.role || 'EMPLOYEE';
+  const isSuperAdminOrAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(role);
 
   return (
     <>
-      <header className="h-16 md:h-20 bg-white border-b border-slate-200 px-4 md:px-8 flex justify-between items-center sticky top-0 z-30 shadow-2xs">
-        {/* Left: Mobile Hamburger & Identity Info */}
-        <div className="flex items-center gap-3 min-w-0">
+      {/* 
+        Top Navigation Bar:
+        - Uses 'absolute top-0 inset-x-0' to lock 1:1 to the main section's actual boundaries.
+        - Perfect mathematical center across all screen widths and sidebar states.
+        - 'pointer-events-none' allows underlying content to remain clickable, with 'pointer-events-auto' on buttons.
+        - z-40 ensures it stays pinned above scrolling main content.
+      */}
+      <header className="absolute top-0 inset-x-0 z-40 h-20 w-full flex items-center justify-between md:justify-center px-4 md:px-0 pointer-events-none transition-all duration-300 ease-in-out">
+        {/* Left: Mobile Expand / Menu Trigger (Mobile only) */}
+        <div className="flex items-center md:hidden pointer-events-auto">
           <button
             type="button"
             onClick={onOpenMobileMenu}
-            className="md:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-            aria-label="Open navigation menu"
+            className="w-11 h-11 flex items-center justify-center bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-2xl text-slate-700 hover:text-slate-950 hover:bg-white transition-all shadow-xs cursor-pointer active:scale-95"
+            title="Expand Navigation Menu"
+            aria-label="Expand Navigation Menu"
           >
-            <Menu size={20} />
+            <Menu size={20} className="shrink-0" />
           </button>
-
-          <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            <h1 className="text-sm md:text-base font-bold text-slate-900 tracking-tight truncate">
-              {getShortName()}
-            </h1>
-            <span
-              className={`text-[9px] md:text-[10px] font-mono px-2 py-0.5 rounded border uppercase font-bold shrink-0 ${
-                roleBadgeStyles[currentUser.role] || 'bg-slate-100 text-slate-700 border-slate-200'
-              }`}
-            >
-              {currentUser.role}
-            </span>
-          </div>
         </div>
 
-        {/* Right: Actions & Attendance Gating */}
-        <div className="flex items-center gap-2 md:gap-3 shrink-0">
-          {/* Attendance / Duty Status Toggle */}
-          <AttendanceToggle onStatusChange={onAttendanceChanged} />
+        {/* 
+          Floating Capsule Cluster:
+          - Perfectly centered to the main section width on desktop
+          - Equal left and right outer padding (px-2.5 py-1.5 with gap-2.5)
+        */}
+        <div className="flex items-center gap-2.5 px-2.5 py-1.5 bg-white/85 backdrop-blur-md border border-slate-200/80 rounded-3xl shadow-xs pointer-events-auto">
+          {/* 1. Present / Absent Attendance Toggle */}
+          {!isSuperAdminOrAdmin && (
+            <button
+              type="button"
+              disabled={togglingDuty}
+              onClick={handleToggleDuty}
+              className={`h-11 flex items-center justify-center rounded-2xl text-xs font-bold transition-all border shadow-2xs cursor-pointer active:scale-95 ${
+                isOnDuty
+                  ? 'bg-emerald-50/90 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-white/85 text-slate-600 border-slate-200/80 hover:bg-white'
+              } w-11 md:w-auto md:px-4 md:gap-2`}
+              title={isOnDuty ? 'Status: Present (Click to set Absent)' : 'Status: Absent (Click to set Present)'}
+            >
+              {isOnDuty ? (
+                <UserCheck size={18} className="text-emerald-600 shrink-0" />
+              ) : (
+                <UserX size={18} className="text-slate-400 shrink-0" />
+              )}
+              <span className="hidden md:inline">
+                {isOnDuty ? 'Present' : 'Absent'}
+              </span>
+            </button>
+          )}
 
-          {/* Daily Work Planner Button */}
-          <button
-            type="button"
-            onClick={onOpenPlanner}
-            disabled={!isOnDuty}
-            title={!isOnDuty ? "You must mark On-Duty / Present to access your daily planner." : "Open Daily Work Planner"}
-            className={`flex items-center gap-1.5 text-xs px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg font-medium transition shadow-2xs ${
-              isOnDuty
-                ? 'bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 cursor-pointer'
-                : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
-            }`}
-          >
-            <Calendar size={14} className={isOnDuty ? "text-blue-600" : "text-slate-400"} />
-            <span className="hidden sm:inline">Daily Plan</span>
-          </button>
+          {/* 2. Daily Commits / Planner */}
+          {!isSuperAdminOrAdmin && (
+            <button
+              type="button"
+              disabled={!isOnDuty}
+              onClick={onOpenPlanner}
+              className={`h-11 flex items-center justify-center rounded-2xl text-xs font-semibold border shadow-2xs transition-all ${
+                isOnDuty
+                  ? 'bg-white/85 border-slate-200/80 hover:bg-white text-slate-700 cursor-pointer active:scale-95'
+                  : 'bg-white/40 border-slate-200/40 text-slate-300 cursor-not-allowed'
+              } w-11 md:w-auto md:px-4 md:gap-2`}
+              title={isOnDuty ? 'Daily Plan & Commits' : 'Must be present to view commits'}
+            >
+              <Calendar size={18} className={isOnDuty ? 'text-blue-600 shrink-0' : 'text-slate-300 shrink-0'} />
+              <span className="hidden md:inline">Daily Plan</span>
+            </button>
+          )}
 
-          {/* Create Task Button */}
+          {/* 3. Create Task */}
           <button
             type="button"
             onClick={onOpenCreateTask}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 md:px-3.5 py-1.5 md:py-2 rounded-lg font-medium transition shadow-xs cursor-pointer"
+            className="w-11 h-11 md:w-auto md:px-4 md:gap-2 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-semibold shadow-md transition-all cursor-pointer active:scale-95"
+            title="Create New Task"
           >
-            <PlusCircle size={15} />
-            <span className="hidden sm:inline">+ Create Task</span>
-            <span className="sm:hidden font-semibold">New</span>
+            <Plus size={19} className="shrink-0" />
+            <span className="hidden md:inline">Create Task</span>
           </button>
 
-          {/* Notification Bell with Badge */}
+          {/* 4. Notifications Bell with Badge */}
           <button
             type="button"
             onClick={() => setIsNotificationOpen(true)}
-            className="relative p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
+            className="relative w-11 h-11 md:w-auto md:px-4 md:gap-2 flex items-center justify-center bg-white/85 border border-slate-200/80 rounded-2xl text-slate-700 hover:bg-white transition-all shadow-2xs cursor-pointer active:scale-95"
             title="Notifications"
           >
-            <Bell size={18} />
+            <Bell size={18} className="shrink-0 text-slate-600" />
+            <span className="hidden md:inline text-xs font-semibold text-slate-700">Alerts</span>
             {unreadCount > 0 && (
-              <span className="absolute 1 top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-600 rounded-full ring-2 ring-white animate-pulse" />
+              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white animate-pulse">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
             )}
           </button>
         </div>
       </header>
 
-      {/* Slide-out Notification Drawer */}
       <NotificationDrawer
         isOpen={isNotificationOpen}
         onClose={() => setIsNotificationOpen(false)}

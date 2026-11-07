@@ -29,7 +29,6 @@ import MorningPlannerModal from './components/MorningPlannerModal';
 import {
   User,
   Clock,
-  CheckCircle2,
   AlertCircle,
   ChevronRight,
   Users,
@@ -47,16 +46,25 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState('landing');
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('activeTab') || 'landing';
+  });
+
   const [tasks, setTasks] = useState([]);
   const [todaysCommitments, setTodaysCommitments] = useState([]);
   const [isOnDuty, setIsOnDuty] = useState(true);
   const [drilldownUserId, setDrilldownUserId] = useState(null);
 
-  // Responsive sidebar
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(
-    typeof window !== 'undefined' ? window.innerWidth >= 768 : false
-  );
+  // Desktop sidebar collapse state (default expanded)
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
+
+  // Mobile drawer state (default closed on small screens)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Sync activeTab changes to localStorage
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
 
   // Modals state
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
@@ -71,10 +79,7 @@ export default function App() {
   const isPrivileged = isMidTierManager || isAdminTier;
   const canManageMatrix = ['SUPER_ADMIN', 'ADMIN', 'BUSINESS_ADMIN', 'DEPT_HEAD', 'SUPERVISOR'].includes(role);
 
-  // Perspective Mode:
-  // - Admin & Super Admin: Strictly 'team' (no self view)
-  // - Base Employee: Strictly 'self' (no team view)
-  // - Mid-Tier (Supervisor, Bus Admin, Dept Head): Defaults to 'team', toggleable to 'self'
+  // Perspective Mode
   const [viewMode, setViewMode] = useState(isBaseEmployee ? 'self' : 'team');
 
   // Enforce role perspective rules
@@ -111,7 +116,6 @@ export default function App() {
     }
   };
 
-  // Fetch Tasks & Commitments
   const fetchTasks = useCallback(async () => {
     if (!currentUser) return;
     try {
@@ -142,6 +146,8 @@ export default function App() {
     setTasks([]);
     setTodaysCommitments([]);
     setDrilldownUserId(null);
+    setActiveTab('landing');
+    localStorage.setItem('activeTab', 'landing');
   };
 
   if (!currentUser) {
@@ -149,14 +155,17 @@ export default function App() {
       <Login
         onLoginSuccess={(user) => {
           setCurrentUser(user);
+          setActiveTab('landing');
+          localStorage.setItem('activeTab', 'landing');
           fetchProfile();
           fetchAttendance();
+          fetchTasks();
         }}
       />
     );
   }
 
-  // Core Self Metrics Calculation (for Self Cockpit)
+  // Self Metrics Calculation
   const pendingAcceptRejectCount = tasks.filter(
     (t) => t.status === 'REQUEST_PENDING' && t.assigned_to === currentUser.id
   ).length;
@@ -181,7 +190,11 @@ export default function App() {
   const renderSelfCockpit = isBaseEmployee || (isMidTierManager && viewMode === 'self');
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 flex font-sans text-slate-800">
+    /* Outer Screen Shell: 
+       - Increased padding for md and below screens (p-3 sm:p-4), kept identical on desktop (md:p-[1.25%])
+       - Uses dynamic viewport height (h-[100dvh]) and overscroll-none to lock mobile browser window scrolling
+    */
+    <div className="h-screen h-[100dvh] w-screen overflow-hidden overscroll-none bg-slate-100/90 flex font-sans text-slate-800 p-3 sm:p-4 md:p-[1.25%] gap-2.5 md:gap-4 box-border">
       {/* ===================== SIDEBAR ===================== */}
       <Sidebar
         currentUser={currentUser}
@@ -194,33 +207,36 @@ export default function App() {
         pendingTasksCount={pendingAcceptRejectCount}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
+        isMinimized={isSidebarMinimized}
+        onToggleMinimize={() => setIsSidebarMinimized((prev) => !prev)}
       />
 
       {/* ===================== MAIN CONTENT WRAPPER ===================== */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Pinned Top Navbar */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+        {/* Floating Top Navbar */}
         <TopNavbar
           currentUser={currentUser}
           isOnDuty={isOnDuty}
-          onOpenMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenPlanner={() => setIsPlannerOpen(true)}
           onOpenCreateTask={() => setIsCreateTaskOpen(true)}
           onAttendanceChanged={() => {
             fetchAttendance();
             fetchTasks();
           }}
-          onOpenNotifications={() => setActiveTab('notifications')}
-          unreadNotificationsCount={0}
+          isSidebarMinimized={isSidebarMinimized}
         />
 
-        {/* Scrollable Content Body */}
-        <main className="p-4 md:p-8 max-w-7xl w-full mx-auto space-y-6 flex-1 overflow-y-auto">
+        {/* Scrollable Content Body: 
+            - pt-20/24 provides clearance under TopNavbar
+            - overscroll-y-contain traps vertical scrolling inside this container on mobile
+            - [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden hides the scrollbar across all engines
+        */}
+        <main className="w-full h-full pt-20 md:pt-24 space-y-6 flex-1 overflow-y-auto overscroll-y-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           
-          {/* ======================================================== */}
-          {/* TAB 1: OVERVIEW LANDING & COCKPIT                        */}
-          {/* ======================================================== */}
+          {/* TAB 1: OVERVIEW LANDING & COCKPIT */}
           {activeTab === 'landing' && (
-            <div className="space-y-6">
+            <div className="space-y-6 w-full">
               {drilldownUserId ? (
                 <UserDetailView
                   userId={drilldownUserId}
@@ -230,9 +246,8 @@ export default function App() {
                 />
               ) : (
                 <>
-                  {/* Perspective Toggle Bar (for Supervisor, Business Admin, Dept Head) */}
                   {isMidTierManager && (
-                    <div className="flex justify-between items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+                    <div className="flex justify-between items-center bg-white/90 backdrop-blur-xs p-3 rounded-2xl border border-slate-200/80 shadow-2xs w-full">
                       <div className="text-xs font-semibold text-slate-700 flex items-center gap-2">
                         <span className="font-mono text-[10px] uppercase font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded">
                           {role.replace('_', ' ')} PERSPECTIVE
@@ -265,7 +280,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* UNIFIED TEAM OVERVIEW (ALL ROLES IN TEAM VIEW) */}
                   {viewMode === 'team' && isPrivileged && (
                     <SupervisorTeamView 
                       currentUser={currentUser}
@@ -273,88 +287,60 @@ export default function App() {
                     />
                   )}
 
-                  {/* BASE EMPLOYEE VIEW & MANAGERS SELF VIEW */}
                   {renderSelfCockpit && (
-                    <div className="space-y-6">
-                      {/* 1. TOP 3 METRIC CARDS FOR SELF COCKPIT */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {/* Card 1: Pending Tasks for Accept or Reject */}
+                    <div className="space-y-6 w-full">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
                         <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
-                          pendingAcceptRejectCount > 0 
-                            ? 'bg-amber-50/70 border-amber-200' 
-                            : 'bg-white border-slate-200'
+                          pendingAcceptRejectCount > 0 ? 'bg-amber-50/70 border-amber-200' : 'bg-white/90 border-slate-200/80'
                         }`}>
                           <div>
                             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
                               Pending Accept / Reject
                             </span>
-                            <div className={`text-2xl font-bold mt-1 ${
-                              pendingAcceptRejectCount > 0 ? 'text-amber-700 font-mono' : 'text-slate-900'
-                            }`}>
+                            <div className={`text-2xl font-bold mt-1 ${pendingAcceptRejectCount > 0 ? 'text-amber-700 font-mono' : 'text-slate-900'}`}>
                               {pendingAcceptRejectCount}
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              Incoming tasks awaiting action
-                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Incoming tasks awaiting action</p>
                           </div>
-                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
-                            pendingAcceptRejectCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-50 text-slate-400'
-                          }`}>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${pendingAcceptRejectCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-50 text-slate-400'}`}>
                             <Inbox size={20} />
                           </div>
                         </div>
 
-                        {/* Card 2: Today's Commits / Total Active Tasks */}
-                        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                        <div className="bg-white/90 p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
                           <div>
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                               Today Commits / Active
                             </span>
                             <div className="text-2xl font-bold text-slate-900 mt-1">
                               <span className="text-blue-600 font-mono">{activeCommitsTodayCount}</span>
                               <span className="text-slate-400 text-lg font-normal font-mono"> / {activeSelfTasks.length}</span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              Committed today vs total backlog
-                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Committed today vs total backlog</p>
                           </div>
                           <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
                             <CalendarClock size={20} />
                           </div>
                         </div>
 
-                        {/* Card 3: Overdue Tasks Count */}
                         <div className={`p-4 sm:p-5 rounded-2xl border shadow-2xs flex items-center justify-between transition ${
-                          overdueTasksCount > 0 
-                            ? 'bg-rose-50/70 border-rose-200' 
-                            : 'bg-white border-slate-200'
+                          overdueTasksCount > 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-white/90 border-slate-200/80'
                         }`}>
                           <div>
-                            <span className={`text-[11px] font-bold uppercase tracking-wider block ${
-                              overdueTasksCount > 0 ? 'text-rose-700' : 'text-slate-500'
-                            }`}>
+                            <span className={`text-[11px] font-bold uppercase tracking-wider block ${overdueTasksCount > 0 ? 'text-rose-700' : 'text-slate-500'}`}>
                               Overdue Tasks
                             </span>
-                            <div className={`text-2xl font-bold mt-1 ${
-                              overdueTasksCount > 0 ? 'text-rose-700 font-mono' : 'text-slate-900'
-                            }`}>
+                            <div className={`text-2xl font-bold mt-1 ${overdueTasksCount > 0 ? 'text-rose-700 font-mono' : 'text-slate-900'}`}>
                               {overdueTasksCount}
                             </div>
-                            <p className={`text-[11px] mt-0.5 ${
-                              overdueTasksCount > 0 ? 'text-rose-600/80' : 'text-slate-400'
-                            }`}>
-                              Personal tasks past deadline
-                            </p>
+                            <p className={`text-[11px] mt-0.5 ${overdueTasksCount > 0 ? 'text-rose-600/80' : 'text-slate-400'}`}>Personal tasks past deadline</p>
                           </div>
-                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
-                            overdueTasksCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-50 text-slate-400'
-                          }`}>
+                          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${overdueTasksCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-50 text-slate-400'}`}>
                             <Clock size={20} />
                           </div>
                         </div>
                       </div>
 
-                      {/* 2. DAILY COMMITS PLANNER TABLE */}
                       <TodaysCommitmentsTable
                         commitments={todaysCommitments}
                         onOpenActionModal={(t) => setSelectedTaskForAction(t)}
@@ -362,9 +348,8 @@ export default function App() {
                         currentUser={currentUser}
                       />
 
-                      {/* Idle Notice when marked on-duty with 0 active committed tasks */}
                       {isEmployeeIdle && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between">
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between w-full">
                           <div className="flex items-center gap-2.5">
                             <AlertCircle size={18} className="text-amber-600 shrink-0" />
                             <span>
@@ -381,12 +366,9 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 3. ACTIVE SELF TASKS BACKLOG (TOP 5 ITEMS) */}
-                      <div className="space-y-3">
+                      <div className="space-y-3 w-full">
                         <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-bold text-slate-900">
-                            Active Tasks Backlog (Recent 5)
-                          </h3>
+                          <h3 className="text-sm font-bold text-slate-900">Active Tasks Backlog (Recent 5)</h3>
                           <button
                             type="button"
                             onClick={() => setActiveTab('tasks')}
@@ -410,22 +392,21 @@ export default function App() {
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 2: TASKS BACKLOG & HIERARCHICAL WORKSPACE            */}
-          {/* ======================================================== */}
+          {/* TAB 2: TASKS BACKLOG & HIERARCHICAL WORKSPACE */}
           {activeTab === 'tasks' && (
-            <TaskModuleHub
-              currentUser={currentUser}
-              tasks={tasks}
-              onOpenActionModal={(t) => setSelectedTaskForAction(t)}
-              onRefresh={fetchTasks}
-            />
+            <div className="w-full">
+              <TaskModuleHub
+                currentUser={currentUser}
+                tasks={tasks}
+                onOpenActionModal={(t) => setSelectedTaskForAction(t)}
+                onRefresh={fetchTasks}
+              />
+            </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 3: BUSINESS & ORG MATRIX                             */}
+          {/* TAB 3: BUSINESS & ORG MATRIX */}
           {activeTab === 'matrix' && canManageMatrix && (
-            <div className="space-y-4">
+            <div className="space-y-4 w-full">
               <BusinessDeptMatrixView
                 currentUser={currentUser}
                 userRole={currentUser.role}
@@ -434,10 +415,9 @@ export default function App() {
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 4: USER MANAGEMENT CONSOLE                           */}
+          {/* TAB 4: USER MANAGEMENT CONSOLE */}
           {activeTab === 'users' && isPrivileged && (
-            <div className="space-y-4">
+            <div className="space-y-4 w-full">
               <UserManagementView 
                 currentUser={currentUser} 
                 onInspectUser={(userId) => {
@@ -448,16 +428,16 @@ export default function App() {
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 5: REASON FORMS REVIEW HUB                           */}
+          {/* TAB 5: REASON FORMS REVIEW HUB */}
           {activeTab === 'reviews' && isPrivileged && (
-            <ReasonReviewsView currentUser={currentUser} />
+            <div className="w-full">
+              <ReasonReviewsView currentUser={currentUser} />
+            </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 6: HIERARCHY TREE                                    */}
+          {/* TAB 6: HIERARCHY TREE */}
           {activeTab === 'tree' && isPrivileged && (
-            <div className="space-y-4">
+            <div className="space-y-4 w-full">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Reporting Hierarchy Tree</h3>
                 <p className="text-xs text-slate-500">Downstream supervisor reporting structures</p>
@@ -466,22 +446,24 @@ export default function App() {
             </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 7: PERSONAL PROFILE                                  */}
+          {/* TAB 7: PERSONAL PROFILE */}
           {activeTab === 'profile' && (
-            <PersonalProfileView
-              currentUser={currentUser}
-              onProfileUpdated={(updated) => {
-                setCurrentUser(updated);
-                localStorage.setItem('user', JSON.stringify(updated));
-              }}
-            />
+            <div className="w-full">
+              <PersonalProfileView
+                currentUser={currentUser}
+                onProfileUpdated={(updated) => {
+                  setCurrentUser(updated);
+                  localStorage.setItem('user', JSON.stringify(updated));
+                }}
+              />
+            </div>
           )}
 
-          {/* ======================================================== */}
-          {/* TAB 8: AUDIT LOGS                                        */}
+          {/* TAB 8: AUDIT LOGS */}
           {activeTab === 'audit' && (
-            <AuditLogViewer currentUser={currentUser} />
+            <div className="w-full">
+              <AuditLogViewer currentUser={currentUser} />
+            </div>
           )}
         </main>
       </div>
