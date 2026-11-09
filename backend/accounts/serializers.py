@@ -126,11 +126,12 @@ class RequestOTPSerializer(serializers.Serializer):
 
 class ResetPasswordWithOTPSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
-    otp_code = serializers.CharField(max_length=6, min_length=6, required=True)
+    otp_code = serializers.CharField(required=True)
     new_password = serializers.CharField(write_only=True, required=True)
 
     def validate_new_password(self, value):
-        validate_password(value)
+        if len(value) < 6:
+            raise serializers.ValidationError("Password must be at least 6 characters long.")
         return value
 
 

@@ -21,15 +21,27 @@ def run_morning_inaction_sweep():
         logger.error(f"Error during scheduled inaction sweep: {e}")
 
 
+def run_nightly_backup():
+    """
+    Automated job triggered every night at 02:00 AM.
+    Executes the backup_database command to create a compressed PostgreSQL archive.
+    """
+    try:
+        logger.info("Executing scheduled nightly PostgreSQL database backup...")
+        call_command('backup_database')
+    except Exception as e:
+        logger.error(f"Error during scheduled nightly database backup: {e}")
+
+
 def start_scheduler():
     """
     Starts the in-process background scheduler.
-    Operates identically across Windows, macOS, Linux, Railway, and Hostinger.
+    Registers jobs to PostgreSQL django_apscheduler with explicit IDs and max_instances=1.
     """
     scheduler = BackgroundScheduler(timezone=settings.TIME_ZONE)
     scheduler.add_jobstore(DjangoJobStore(), "default")
 
-    # Schedule: Every day at 08:00 AM
+    # 1. Schedule: Every day at 08:00 AM (Morning Inaction Sweep)
     scheduler.add_job(
         run_morning_inaction_sweep,
         trigger='cron',
@@ -40,5 +52,19 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    scheduler.start()
-    logger.info("Universal In-App Scheduler started successfully.")
+    # 2. Schedule: Every day at 02:00 AM (Nightly Database Backup)
+    scheduler.add_job(
+        run_nightly_backup,
+        trigger='cron',
+        hour=2,
+        minute=0,
+        id='nightly_db_backup_job',
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    try:
+        scheduler.start()
+        logger.info("In-App Background APScheduler started successfully.")
+    except Exception as e:
+        logger.warning(f"Scheduler failed to start or already active: {e}")

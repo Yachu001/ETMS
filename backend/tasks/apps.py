@@ -10,15 +10,23 @@ class TasksConfig(AppConfig):
     name = 'tasks'
 
     def ready(self):
-        # Prevent starting scheduler twice during local auto-reloads
-        # or when running utility commands (like migrate or makemigrations)
+        # 1. Skip scheduler startup during management, migration, and backup utility commands
         is_manage_command = any(
-            cmd in sys.argv for cmd in ['makemigrations', 'migrate', 'collectstatic', 'shell']
+            cmd in sys.argv for cmd in [
+                'makemigrations', 'migrate', 'collectstatic', 
+                'shell', 'createsuperuser', 'dumpdata', 'loaddata', 
+                'backup_database', 'sweep_daily_inaction'
+            ]
         )
         if is_manage_command:
             return
 
-        # Check Django reloader flag for local dev
-        if os.environ.get('RUN_MAIN') == 'true' or 'gunicorn' in sys.argv[0]:
-            from .scheduler import start_scheduler
-            start_scheduler()
+        # 2. Boot scheduler only in the active running server process
+        # Prevents double initialization under Django runserver auto-reload
+        if os.environ.get('RUN_MAIN') == 'true' or not any('runserver' in arg for arg in sys.argv):
+            try:
+                from .scheduler import start_scheduler
+                start_scheduler()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Scheduler startup deferred: {e}")

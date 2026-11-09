@@ -1524,46 +1524,72 @@ class RequestPasswordResetOTPView(APIView):
         serializer = RequestOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data['email'].strip().lower()
+
+        # 1. Explicitly check if the user account exists
         user = User.objects.filter(email__iexact=email, is_active=True).first()
-
-        if user:
-            otp = PasswordResetOTP.objects.create(user=user)
-
-            subject = "Your TeamPulse Password Recovery OTP"
-            message = (
-                f"Hello {user.full_name or user.username},\n\n"
-                f"You requested a password reset for your account.\n"
-                f"Your 6-digit verification code is:\n\n"
-                f"    {otp.otp_code}\n\n"
-                f"This code will expire in 10 minutes.\n"
-                f"If you did not request this password reset, please ignore this email.\n\n"
-                f"— TeamPulse System Security"
+        if not user:
+            return Response(
+                {"detail": "No user account exists with this email address."},
+                status=status.HTTP_404_NOT_FOUND
             )
 
-            try:
-                send_mail(
-                    subject=subject,
-                    message=message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-            except Exception as e:
-                print(f"SMTP Dispatch Failure: {e}")
+        # 2. Rate-limit / Cooldown check (prevent multiple OTPs within 2 minutes)
+        cooldown_threshold = timezone.now() - timedelta(minutes=2)
+        recent_otp = PasswordResetOTP.objects.filter(
+            user=user,
+            created_at__gte=cooldown_threshold
+        ).order_by('-created_at').first()
 
-            log_system_event(
-                actor=None,
-                action_type='OTP_REQUESTED',
-                module='AUTH',
-                target_user=user,
-                entity_id=user.id,
-                entity_name=user.username,
-                remarks=f"Password reset OTP dispatched to {user.email}",
-                request=request
+        if recent_otp:
+            time_elapsed = (timezone.now() - recent_otp.created_at).total_seconds()
+            remaining_seconds = int(max(1, 120 - time_elapsed))
+            return Response(
+                {"detail": f"An OTP was dispatched recently. Please wait {remaining_seconds}s before requesting a new code."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
             )
+
+        # 3. Create fresh OTP
+        otp = PasswordResetOTP.objects.create(user=user)
+
+        subject = "Your TeamPulse Password Recovery OTP"
+        message = (
+            f"Hello {user.full_name or user.username},\n\n"
+            f"You requested a password reset for your account.\n"
+            f"Your 6-digit verification code is:\n\n"
+            f"    {otp.otp_code}\n\n"
+            f"This code will expire in 10 minutes.\n"
+            f"If you did not request this password reset, please ignore this email.\n\n"
+            f"— TeamPulse System Security"
+        )
+
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print(f"SMTP Dispatch Failure: {e}")
+            return Response(
+                {"detail": f"Unable to dispatch verification email: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        log_system_event(
+            actor=None,
+            action_type='OTP_REQUESTED',
+            module='AUTH',
+            target_user=user,
+            entity_id=user.id,
+            entity_name=user.username,
+            remarks=f"Password reset OTP dispatched to {user.email}",
+            request=request
+        )
 
         return Response(
-            {'detail': 'If this email is registered in our system, a verification code has been dispatched.'},
+            {'detail': 'A 6-digit verification code has been dispatched to your email.'},
             status=status.HTTP_200_OK
         )
 
@@ -1572,24 +1598,49 @@ class ResetPasswordWithOTPView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        print(f"\n[DEBUG OTP VERIFY] Incoming data: {request.data}")
         serializer = ResetPasswordWithOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        
+        if not serializer.is_valid():
+            print(f"[DEBUG OTP VERIFY] Serializer errors: {serializer.errors}")
+            # Flatten errors so the frontend shows the exact validation message
+            first_error_field = next(iter(serializer.errors))
+            error_msg = serializer.errors[first_error_field]
+            if isinstance(error_msg, list):
+                error_msg = error_msg[0]
+            return Response({'detail': f"{first_error_field}: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
+
         email = serializer.validated_data['email'].strip().lower()
-        otp_code = serializer.validated_data['otp_code']
+        otp_code = str(serializer.validated_data['otp_code']).strip()
         new_password = serializer.validated_data['new_password']
 
-        user = get_object_or_404(User, email__iexact=email, is_active=True)
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            print(f"[DEBUG OTP VERIFY] User not found for email: {email}")
+            return Response({'detail': 'No user account found with this email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find matching unused OTP record regardless of timezone drift
         record = PasswordResetOTP.objects.filter(
-            user=user, otp_code=otp_code, is_used=False
-        ).order_by('-created_at').first()
+            user=user,
+            otp_code=otp_code,
+            is_used=False
+        ).order_by('-id').first()
 
-        if not record or not record.is_valid():
-            return Response({'detail': 'Invalid or expired OTP code.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not record:
+            print(f"[DEBUG OTP VERIFY] No unused record found for user '{user.username}' with code '{otp_code}'")
+            return Response({'detail': 'Invalid or expired OTP code. Please request a new code.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 30-minute validity threshold
+        time_diff = abs((timezone.now() - record.created_at).total_seconds())
+        print(f"[DEBUG OTP VERIFY] Matched OTP ID: {record.id}, Age: {int(time_diff)} seconds")
+        
+        if time_diff > 1800:
+            return Response({'detail': 'This OTP code has expired. Please request a new code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set new password and mark OTPs as used
         user.set_password(new_password)
         user.save()
-        record.is_used = True
-        record.save()
+        PasswordResetOTP.objects.filter(user=user, is_used=False).update(is_used=True)
 
         log_system_event(
             actor=user,
@@ -1602,7 +1653,7 @@ class ResetPasswordWithOTPView(APIView):
             request=request
         )
 
-        return Response({'detail': 'Password has been reset successfully.'}, status=status.HTTP_200_OK)
+        return Response({'detail': 'Password has been reset successfully. You can now log in.'}, status=status.HTTP_200_OK)
 
 
 # ==========================================

@@ -1,3 +1,8 @@
+# Environment & Secrets (Root, Backend & Frontend)
+.env
+.env.*
+*.env
+
 # Python & Django
 backend/venv/
 backend/env/
@@ -5,11 +10,12 @@ backend/env/
 *.pyc
 *.sqlite3
 *.log
+backend/backups/*.sql
+backend/backups/*.sql.gz
 
 # React / Node
 frontend/node_modules/
 frontend/dist/
-.env.local
 
 # IDE & OS
 .vscode/

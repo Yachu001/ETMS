@@ -9,11 +9,19 @@ https://docs.djangoproject.com/en/6.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')
+
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-3x8!sy&rv*)7@1rt01c_1&s*(#p6e44mc4nnnl0w%zrj+gc3!')
+DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+
+allowed_hosts_raw = os.getenv('ALLOWED_HOSTS', '*')
+ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_raw.split(',') if h.strip()]
 
 
 # Quick-start development settings - unsuitable for production
@@ -41,12 +49,13 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'corsheaders',
+    'django_apscheduler',
 
     # Internal apps
     'accounts',
     'tasks',
     'notifications',
-    'django_apscheduler',
+    
 ]
 
 MIDDLEWARE = [
@@ -83,12 +92,26 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+USE_POSTGRES = os.getenv('USE_POSTGRES', '0') == '1'
+
+if USE_POSTGRES:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'teampulse_db'),
+            'USER': os.getenv('DB_USER', 'teampulse_user'),
+            'PASSWORD': os.getenv('DB_PASSWORD', '123456'),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -126,7 +149,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
-
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Email Configuration (Direct SMTP Delivery)
 # https://docs.djangoproject.com/en/6.1/topics/email/#smtp-backend
@@ -135,9 +158,9 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'your-company-email@gmail.com'
-EMAIL_HOST_PASSWORD = 'your-16-character-app-password'
-DEFAULT_FROM_EMAIL = 'TeamPulse Portal <your-company-email@gmail.com>'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'yourpersonalorgmail@gmail.com')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'abcdefghijklmnop')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', f"TeamPulse Portal <{EMAIL_HOST_USER}>")
 
 
 # Set Custom User Model 
