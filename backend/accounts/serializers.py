@@ -690,7 +690,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
                             entity_id=user.id,
                             entity_name=user.username,
                             new_values={'role': user.role, 'matrix_id': matrix_obj.id, 'designation': user.designation},
-                            remarks=f"Provisioned supervisor account for {user.username} on matrix {matrix_obj.title}",
+                            remarks=f"Provisioned supervisor account for {user.username} on matrix {str(matrix_obj)}",
                             request=request
                         )
                         return user

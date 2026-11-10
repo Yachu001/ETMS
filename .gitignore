@@ -10,12 +10,17 @@ backend/env/
 *.pyc
 *.sqlite3
 *.log
-backend/backups/*.sql
-backend/backups/*.sql.gz
+backend/backups/
+datadump.json
+restore.sql
 
 # React / Node
 frontend/node_modules/
 frontend/dist/
+
+# Cloudflare & Binaries
+cloudflared.exe
+rclone.exe
 
 # IDE & OS
 .vscode/
