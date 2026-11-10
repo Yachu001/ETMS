@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+// Read production Render URL from Vite env; fallback to '/api' for local proxy
+const rawBase = import.meta.env.VITE_API_URL || '/api';
+const baseURL = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
+
 const api = axios.create({
-  baseURL: '/api', // Relative path to support reverse proxies, tunnels, and local dev
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -38,7 +42,6 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
-      // If a refresh is already in flight, queue concurrent requests
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -61,12 +64,12 @@ api.interceptors.response.use(
       }
 
       try {
-        const res = await axios.post('/api/auth/token/refresh/', {
+        const res = await axios.post(`${baseURL}/auth/token/refresh/`, {
           refresh: refreshToken,
         });
         const newAccess = res.data.access;
         localStorage.setItem('access_token', newAccess);
-        
+
         api.defaults.headers.common.Authorization = `Bearer ${newAccess}`;
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
 
