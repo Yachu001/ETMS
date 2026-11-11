@@ -67,10 +67,12 @@ export default function TopNavbar({
     <>
       {/* 
         Top Navigation Bar:
-        - Outer container remains static without any pulsing/animation.
-        - Animated glowing effects are localized strictly to the inner pill elements.
+        - Absolute top-0 inset-x-0 locks to the main section boundary.
+        - Automatically glides horizontally when the sidebar expands or collapses.
+        - pointer-events-none lets clicks pass through to content underneath, with pointer-events-auto on buttons.
+        - z-40 ensures it floats above scrolling content.
       */}
-      <header className="absolute top-0 inset-x-0 z-40 h-20 w-full flex items-center justify-between md:justify-center px-4 md:px-0 pointer-events-none transition-all duration-300 ease-in-out">
+      <header className="absolute top-0 inset-x-0 z-40 h-20 w-full flex items-center justify-between md:justify-center px-3 sm:px-4 md:px-0 pointer-events-none transition-all duration-300 ease-in-out">
         {/* Left: Mobile Expand / Menu Trigger (Mobile only) */}
         <div className="flex items-center md:hidden pointer-events-auto">
           <button
@@ -86,11 +88,12 @@ export default function TopNavbar({
 
         {/* 
           Floating Capsule Cluster:
-          - Pure static, solid obsidian-glass base with delicate gold border (No outer animation)
+          - Pure static, solid obsidian-glass base with delicate gold border
+          - Stays mathematically centered to the main content container width
         */}
-        <div className="flex items-center gap-2.5 px-3 py-1.5 bg-[#0b0c0e]/95 backdrop-blur-md border border-amber-500/25 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.85),0_0_20px_rgba(0,0,0,0.5)] pointer-events-auto">
+        <div className="flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-1.5 bg-[#0b0c0e]/95 backdrop-blur-md border border-amber-500/25 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.85),0_0_20px_rgba(0,0,0,0.5)] pointer-events-auto">
           
-          {/* 1. Present / Absent Attendance Toggle (Animated Gold Border Halo) */}
+          {/* 1. Present / Absent Attendance Toggle */}
           {!isSuperAdminOrAdmin && (
             <button
               type="button"
@@ -114,7 +117,7 @@ export default function TopNavbar({
             </button>
           )}
 
-          {/* 2. Daily Commits / Planner (Animated Gold Border Halo) */}
+          {/* 2. Daily Commits / Planner */}
           {!isSuperAdminOrAdmin && (
             <button
               type="button"
@@ -132,7 +135,7 @@ export default function TopNavbar({
             </button>
           )}
 
-          {/* 3. Create Task (Uniform style, Animated Gold Border Halo) */}
+          {/* 3. Create Task */}
           <button
             type="button"
             onClick={onOpenCreateTask}
@@ -143,7 +146,7 @@ export default function TopNavbar({
             <span className="hidden md:inline">Create Task</span>
           </button>
 
-          {/* 4. Notifications Bell with Badge (Animated Gold Border Halo) */}
+          {/* 4. Notifications Bell with Badge */}
           <button
             type="button"
             onClick={() => setIsNotificationOpen(true)}

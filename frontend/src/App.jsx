@@ -66,6 +66,22 @@ export default function App() {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
+  // Mobile Back Navigation & Swipe Gesture Listener
+  useEffect(() => {
+    const handlePopState = () => {
+      if (drilldownUserId) {
+        setDrilldownUserId(null);
+        return;
+      }
+      if (activeTab !== 'landing') {
+        setActiveTab('landing');
+        return;
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [drilldownUserId, activeTab]);
+
   // Modals state
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [selectedTaskForAction, setSelectedTaskForAction] = useState(null);
@@ -190,16 +206,15 @@ export default function App() {
   const renderSelfCockpit = isBaseEmployee || (isMidTierManager && viewMode === 'self');
 
   return (
-    /* Outer Screen Shell: 
-       - Lightened slate-zinc grey shaded background (#22252c / #1b1e24)
-       - Provides clear contrast separation against the jet-black obsidian cards (#0b0c0e) and sidebars
-    */
     <div className="h-screen h-[100dvh] w-screen overflow-hidden overscroll-none bg-[#20232a] bg-[radial-gradient(ellipse_at_top,_#282c35,_#1b1d22)] flex font-sans text-neutral-200 p-3 sm:p-4 md:p-[1.25%] gap-2.5 md:gap-4 box-border">
       {/* ===================== SIDEBAR ===================== */}
       <Sidebar
         currentUser={currentUser}
         activeTab={activeTab}
         setActiveTab={(tab) => {
+          if (tab !== activeTab) {
+            window.history.pushState({ tab }, '', '');
+          }
           setActiveTab(tab);
           setDrilldownUserId(null);
         }}
@@ -228,7 +243,7 @@ export default function App() {
         />
 
         {/* Scrollable Content Body */}
-        <main className="w-full h-full pt-20 md:pt-24 space-y-6 flex-1 overflow-y-auto overscroll-y-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <main className="w-full h-full pt-20 md:pt-24 pb-28 sm:pb-20 space-y-6 flex-1 overflow-y-auto overscroll-y-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           
           {/* TAB 1: OVERVIEW LANDING & COCKPIT */}
           {activeTab === 'landing' && (
@@ -423,6 +438,7 @@ export default function App() {
               <UserManagementView 
                 currentUser={currentUser} 
                 onInspectUser={(userId) => {
+                  window.history.pushState({ drilldown: userId }, '', '');
                   setDrilldownUserId(userId);
                   setActiveTab('landing');
                 }}
@@ -490,6 +506,7 @@ export default function App() {
         isOpen={isPlannerOpen}
         onClose={() => setIsPlannerOpen(false)}
         onCommitmentSaved={fetchTasks}
+        onCommitmentsUpdated={fetchTasks}
         currentUser={currentUser}
       />
     </div>

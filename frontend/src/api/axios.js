@@ -41,6 +41,17 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // 1. DO NOT intercept or trigger a reload for login or password reset endpoints.
+    // Let 400/401 errors pass directly to the view's catch handler to show the error message.
+    const isAuthEndpoint =
+      originalRequest?.url?.includes('/auth/token/') ||
+      originalRequest?.url?.includes('/auth/password-reset/');
+
+    if (isAuthEndpoint) {
+      return Promise.reject(error);
+    }
+
+    // 2. Only handle token refresh for authenticated in-app calls
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {

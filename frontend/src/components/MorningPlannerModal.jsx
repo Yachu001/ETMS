@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 
-export default function MorningPlannerModal({ isOpen, onClose, onCommitmentsUpdated }) {
+export default function MorningPlannerModal({ 
+  isOpen, 
+  onClose, 
+  onCommitmentsUpdated, 
+  onCommitmentSaved 
+}) {
   const [availableTasks, setAvailableTasks] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [isOnDuty, setIsOnDuty] = useState(true);
@@ -60,6 +65,7 @@ export default function MorningPlannerModal({ isOpen, onClose, onCommitmentsUpda
     try {
       await api.post('/tasks/daily-commitments/', { task_ids: selectedIds });
       if (onCommitmentsUpdated) onCommitmentsUpdated();
+      if (onCommitmentSaved) onCommitmentSaved();
       onClose();
     } catch (err) {
       const detail = err.response?.data?.detail 

@@ -1,0 +1,2493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grandis QC Mark-Sheet System - Excel Edition</title>
+  <!-- SheetJS 0.18.5 from cdnjs (Only allowed external library) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    /* =========================================================================
+       EXCEL UI STYLING (Calibri/Arial, Excel Green #217346, 1px Light-Grey Grid)
+       ========================================================================= */
+    :root {
+      --excel-green: #217346;
+      --excel-green-dark: #10522c;
+      --excel-green-light: #e8f5e9;
+      --grid-border: #d4d4d4;
+      --header-bg: #f3f3f3;
+      --header-border: #c0c0c0;
+      --yellow-input: #fffde7;
+      --yellow-border: #fbc02d;
+      --active-cell-border: #217346;
+      --pass-bg: #c6efce;
+      --pass-text: #006100;
+      --fail-bg: #ffc7ce;
+      --fail-text: #9c0006;
+      --pending-bg: #ffeb9c;
+      --pending-text: #9c5700;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Calibri, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      font-size: 13px;
+      color: #000000;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 1. TOP GREEN APP BAR */
+    .excel-titlebar {
+      background: var(--excel-green);
+      color: #ffffff;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-weight: 600;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .titlebar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .titlebar-badge {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+
+    .titlebar-status {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #81c784;
+    }
+
+    /* 2. RIBBON TOOLBAR */
+    .excel-toolbar {
+      background: #f8f9fa;
+      border-bottom: 1px solid var(--grid-border);
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    .tool-btn {
+      background: #ffffff;
+      border: 1px solid #c8c8c8;
+      border-radius: 3px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #333333;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .tool-btn:hover {
+      background: #eef3eb;
+      border-color: var(--excel-green);
+      color: var(--excel-green-dark);
+    }
+
+    .tool-btn.btn-primary {
+      background: var(--excel-green);
+      color: #ffffff;
+      border-color: var(--excel-green-dark);
+      font-weight: 600;
+    }
+
+    .tool-btn.btn-primary:hover {
+      background: var(--excel-green-dark);
+      color: #ffffff;
+    }
+
+    .tool-btn.btn-danger {
+      color: #c62828;
+    }
+
+    .tool-btn.btn-danger:hover {
+      background: #ffebee;
+      border-color: #ef5350;
+    }
+
+    .toolbar-select {
+      background: #ffffff;
+      border: 1px solid #c8c8c8;
+      border-radius: 3px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #333333;
+      cursor: pointer;
+      max-width: 260px;
+    }
+
+    .toolbar-separator {
+      height: 20px;
+      width: 1px;
+      background: #d4d4d4;
+      margin: 0 4px;
+    }
+
+    .toolbar-msg {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--excel-green-dark);
+      padding: 3px 8px;
+      border-radius: 3px;
+      background: #e8f5e9;
+      display: none;
+    }
+
+    /* 3. INFO BAR (Yellow Input Cells) */
+    .excel-infobar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--grid-border);
+      padding: 6px 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .info-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .info-group label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #555555;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .info-input {
+      background: var(--yellow-input);
+      border: 1px solid var(--yellow-border);
+      border-radius: 2px;
+      padding: 4px 6px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #111111;
+      font-weight: 600;
+      width: 100%;
+    }
+
+    .info-input:focus {
+      outline: none;
+      background: #ffffff;
+      border-color: var(--excel-green);
+      box-shadow: 0 0 0 2px rgba(33, 115, 70, 0.2);
+    }
+
+    /* 4. SHEET TITLE BAR */
+    .sheet-title-banner {
+      background: #ffffff;
+      border-bottom: 1px solid var(--grid-border);
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .banner-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #10522c;
+      text-align: center;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* 5. FORMULA BAR */
+    .excel-formula-bar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--grid-border);
+      height: 28px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+
+    .formula-namebox {
+      width: 60px;
+      height: 20px;
+      border: 1px solid #d4d4d4;
+      background: #fdfdfd;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #444444;
+      user-select: text;
+    }
+
+    .formula-fx {
+      padding: 0 8px;
+      font-style: italic;
+      color: #777777;
+      font-weight: bold;
+    }
+
+    .formula-input {
+      flex: 1;
+      height: 22px;
+      border: none;
+      padding: 0 6px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      background: transparent;
+      user-select: text;
+    }
+
+    /* 6. MAIN SPREADSHEET GRID WRAPPER */
+    .excel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .grid-scroll-pane {
+      flex: 1;
+      overflow: auto;
+      background: #e6e6e6;
+    }
+
+    /* SPREADSHEET TABLE */
+    .excel-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #ffffff;
+      user-select: text;
+    }
+
+    .excel-table th,
+    .excel-table td {
+      border: 1px solid var(--grid-border);
+      padding: 3px 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      height: 24px;
+      vertical-align: middle;
+    }
+
+    /* Column Headers & Row Numbers */
+    .th-col-letter {
+      background: var(--header-bg);
+      color: #666666;
+      font-weight: normal;
+      font-size: 11px;
+      text-align: center;
+      width: 40px;
+      user-select: none;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .td-row-num {
+      background: var(--header-bg);
+      color: #666666;
+      font-weight: normal;
+      font-size: 11px;
+      text-align: center;
+      width: 40px;
+      user-select: none;
+      position: sticky;
+      left: 0;
+      z-index: 10;
+    }
+
+    .th-corner {
+      background: #e1dfdd;
+      position: sticky;
+      top: 0;
+      left: 0;
+      z-index: 30;
+      width: 40px;
+    }
+
+    /* Group Header Row (Theory, Practical, Overall) */
+    .tr-group-header th {
+      background: #ebebeb;
+      color: #111111;
+      font-weight: 700;
+      font-size: 12px;
+      text-align: center;
+      border-bottom: 1px solid #b0b0b0;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      position: sticky;
+      top: 24px;
+      z-index: 15;
+    }
+
+    /* Column Names Row */
+    .tr-column-names th {
+      background: #f7f7f7;
+      color: #111111;
+      font-weight: 700;
+      font-size: 12px;
+      text-align: center;
+      border-bottom: 2px solid #b0b0b0;
+      position: sticky;
+      top: 48px;
+      z-index: 15;
+    }
+
+    /* Editable cells */
+    .cell-editable {
+      background: #ffffff;
+      outline: none;
+      cursor: cell;
+    }
+
+    .cell-editable:focus {
+      outline: 2px solid var(--active-cell-border);
+      background: #ffffff !important;
+      z-index: 5;
+    }
+
+    .cell-numeric {
+      text-align: right;
+      padding-right: 8px;
+      font-weight: 500;
+    }
+
+    .cell-center {
+      text-align: center;
+    }
+
+    /* Computed Read-Only Cells */
+    .cell-computed {
+      background: #f5f5f5;
+      font-weight: 700;
+      text-align: center;
+      color: #111111;
+      cursor: default;
+    }
+
+    /* Excel Pass / Fail / Pending conditional formatting colors */
+    .val-pass {
+      background: var(--pass-bg) !important;
+      color: var(--pass-text) !important;
+      font-weight: 800;
+    }
+
+    .val-fail {
+      background: var(--fail-bg) !important;
+      color: var(--fail-text) !important;
+      font-weight: 800;
+    }
+
+    .val-pending {
+      background: var(--pending-bg) !important;
+      color: var(--pending-text) !important;
+      font-weight: 700;
+    }
+
+    /* Row hover effect */
+    .excel-table tbody tr:hover td:not(.val-pass):not(.val-fail):not(.val-pending) {
+      background-color: #fafbfc;
+    }
+
+    /* 7. BOTTOM SHEET TABS */
+    .excel-sheet-tabs {
+      background: #f3f3f3;
+      border-top: 1px solid var(--grid-border);
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .sheet-tab {
+      background: #e1dfdd;
+      border: 1px solid var(--grid-border);
+      border-bottom: none;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #333333;
+      cursor: pointer;
+      border-top-left-radius: 4px;
+      border-top-right-radius: 4px;
+      height: 27px;
+      display: flex;
+      align-items: center;
+      transition: background 0.15s;
+    }
+
+    .sheet-tab:hover {
+      background: #ecebe9;
+    }
+
+    .sheet-tab.active {
+      background: #ffffff;
+      color: var(--excel-green-dark);
+      font-weight: 700;
+      border-bottom: 2px solid #ffffff;
+      border-top: 3px solid var(--excel-green);
+      margin-top: -2px;
+    }
+
+    /* 8. STUDENTS & SETTINGS VIEWS */
+    .tab-view-container {
+      flex: 1;
+      background: #ffffff;
+      padding: 16px;
+      overflow: auto;
+      display: none;
+    }
+
+    .tab-view-container.active {
+      display: block;
+    }
+
+    .card-panel {
+      background: #ffffff;
+      border: 1px solid var(--grid-border);
+      border-radius: 4px;
+      padding: 16px;
+      max-width: 1000px;
+      margin: 0 auto;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+
+    .card-panel h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--excel-green-dark);
+      margin-bottom: 6px;
+    }
+
+    .card-panel p {
+      color: #666666;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .settings-json-box {
+      width: 100%;
+      height: 480px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      padding: 10px;
+      border: 1px solid #c8c8c8;
+      border-radius: 4px;
+      background: #fafafa;
+      color: #111111;
+      resize: vertical;
+    }
+
+    /* Modal dialogs & Toast */
+    .toast-msg {
+      position: fixed;
+      top: 45px;
+      right: 20px;
+      background: #323232;
+      color: #ffffff;
+      padding: 10px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+      z-index: 9999;
+      display: none;
+      animation: fadeIn 0.2s;
+    }
+
+    .toast-msg.toast-alert {
+      background: #d32f2f;
+      color: #ffffff;
+    }
+
+    .toast-msg.toast-success {
+      background: var(--excel-green);
+      color: #ffffff;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* PRINT STYLES - A4 LANDSCAPE */
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+
+    @media print {
+      body {
+        height: auto;
+        overflow: visible;
+      }
+      .excel-titlebar,
+      .excel-toolbar,
+      .excel-formula-bar,
+      .excel-sheet-tabs,
+      .th-col-letter,
+      .td-row-num,
+      .th-corner {
+        display: none !important;
+      }
+      .grid-scroll-pane {
+        overflow: visible !important;
+        background: #ffffff !important;
+      }
+      .excel-table {
+        width: 100% !important;
+        border: 1px solid #000000 !important;
+      }
+      .excel-table th,
+      .excel-table td {
+        border: 1px solid #555555 !important;
+        font-size: 10px !important;
+        padding: 3px 4px !important;
+      }
+      .excel-infobar {
+        border-bottom: 2px solid #000000;
+        margin-bottom: 8px;
+        padding: 4px 0;
+      }
+      .sheet-title-banner {
+        border-bottom: 2px solid #000000;
+        padding: 4px 0;
+      }
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. TOP TITLEBAR -->
+  <div class="excel-titlebar">
+    <div class="titlebar-left">
+      <!-- Excel Grid Icon -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" stroke="#ffffff"/>
+        <line x1="3" y1="9" x2="21" y2="9" stroke="#ffffff"/>
+        <line x1="3" y1="15" x2="21" y2="15" stroke="#ffffff"/>
+        <line x1="9" y1="3" x2="9" y2="21" stroke="#ffffff"/>
+        <line x1="15" y1="3" x2="15" y2="21" stroke="#ffffff"/>
+      </svg>
+      <span>Grandis QC Manager - Excel Edition</span>
+      <span class="titlebar-badge" id="storageBadge">LOCAL STORAGE</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <a href="index.html" style="color: #ffffff; text-decoration: none; font-size: 11px; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+        🌐 Student Portal
+      </a>
+      <button type="button" id="adminLogoutBtn" style="background: #dc2626; color: #ffffff; border: 1px solid rgba(255,255,255,0.3); padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px;" title="Logout of Admin Portal">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        Logout
+      </button>
+      <div class="titlebar-status">
+        <div class="status-dot"></div>
+        <span id="backendStatus">Ready</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. EXCEL TOOLBAR -->
+  <div class="excel-toolbar">
+    <select id="savedBatchesSelect" class="toolbar-select" title="Open a previously saved evaluation sheet">
+      <option value="">-- Open Saved Sheet --</option>
+    </select>
+
+    <button type="button" class="tool-btn" id="btnNewSheet" title="Start a new blank sheet for this QC">
+      <span>📄 New</span>
+    </button>
+
+    <button type="button" class="tool-btn btn-primary" id="btnSaveSheet" title="Save current batch to storage">
+      <span>💾 Save</span>
+    </button>
+
+    <button type="button" class="tool-btn btn-danger" id="btnDeleteSheet" title="Delete current saved batch">
+      <span>🗑️ Delete</span>
+    </button>
+
+    <div class="toolbar-separator"></div>
+
+    <button type="button" class="tool-btn" id="btnAddRow" title="Add empty student row (or press Enter on last row)">
+      <span>➕ Row</span>
+    </button>
+
+    <button type="button" class="tool-btn" id="btnImportExcel" title="Import students and marks from Excel .xlsx file">
+      <span>📂 Import Excel</span>
+    </button>
+    <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+
+    <button type="button" class="tool-btn" id="btnExportExcel" title="Export current sheet as an Excel .xlsx spreadsheet">
+      <span>📊 Export Excel</span>
+    </button>
+
+    <button type="button" class="tool-btn" id="btnDownloadTemplate" title="Download official Excel template for staff entry">
+      <span>📥 Download Template .xlsx</span>
+    </button>
+
+    <div class="toolbar-separator"></div>
+
+    <button type="button" class="tool-btn" onclick="window.print()" title="Print A4 landscape mark sheet">
+      <span>🖨️ Print / PDF</span>
+    </button>
+
+    <div class="toolbar-msg" id="toolbarMsg">Saved</div>
+  </div>
+
+  <!-- 3. INFO BAR (Yellow Input Cells) -->
+  <div class="excel-infobar" id="infoBar">
+    <div class="info-group">
+      <label for="infoBranch">Branch *</label>
+      <input type="text" id="infoBranch" class="info-input" list="branchList" placeholder="Select or type branch" required>
+      <datalist id="branchList"></datalist>
+    </div>
+
+    <div class="info-group">
+      <label for="infoBatch">Batch *</label>
+      <input type="text" id="infoBatch" class="info-input" list="batchList" placeholder="e.g. Batch 24" required>
+      <datalist id="batchList"></datalist>
+    </div>
+
+    <div class="info-group">
+      <label for="infoDate">QC Date</label>
+      <input type="date" id="infoDate" class="info-input">
+    </div>
+
+    <div class="info-group">
+      <label for="infoFaculty">Faculty</label>
+      <input type="text" id="infoFaculty" class="info-input" list="facultyList" placeholder="Faculty name">
+      <datalist id="facultyList"></datalist>
+    </div>
+
+    <div class="info-group">
+      <label for="infoIncharge">Module Incharge</label>
+      <input type="text" id="infoIncharge" class="info-input" list="inchargeList" placeholder="Module Incharge">
+      <datalist id="inchargeList"></datalist>
+    </div>
+
+    <div class="info-group">
+      <label for="infoHof">HOF</label>
+      <input type="text" id="infoHof" class="info-input" list="hofList" placeholder="Head of Faculty">
+      <datalist id="hofList"></datalist>
+    </div>
+
+    <div class="info-group" style="grid-column: span 2;">
+      <label for="infoAssessors">QC Assessors / Inspector</label>
+      <input type="text" id="infoAssessors" class="info-input" list="assessorList" placeholder="Assessor names">
+      <datalist id="assessorList"></datalist>
+    </div>
+  </div>
+
+  <!-- 4. SHEET TITLE BANNER -->
+  <div class="sheet-title-banner">
+    <!-- Official Grandis Logo Left (Transparent) -->
+    <div style="display:flex; align-items:center; gap:8px;">
+      <img src="grandis-logo-transparent.png" alt="Grandis Logo" style="height: 32px; width: auto; object-fit: contain;">
+    </div>
+
+    <div class="banner-title" id="sheetTitleDisplay">
+      FIRST TERM QUALITY CHECKING EVALUATION RESULT
+    </div>
+
+    <!-- Official R&D Logo Right -->
+    <div style="display:flex; align-items:center; gap:8px;">
+      <img src="rd-logo.png" alt="R&amp;D Logo" style="height: 28px; width: auto; object-fit: contain;">
+    </div>
+  </div>
+
+  <!-- 5. FORMULA BAR -->
+  <div class="excel-formula-bar">
+    <div class="formula-namebox" id="cellAddressDisplay">A1</div>
+    <div class="formula-fx">fx</div>
+    <input type="text" id="formulaInputDisplay" class="formula-input" readonly placeholder="Select a cell to view formula / value">
+  </div>
+
+  <!-- 6. BODY (Grid or Tab Views) -->
+  <div class="excel-body">
+
+    <!-- SPREADSHEET GRID VIEW (Active for QC tabs) -->
+    <div class="grid-scroll-pane" id="gridPane">
+      <table class="excel-table" id="qcGridTable">
+        <!-- Injected dynamically by renderQCGrid() -->
+      </table>
+    </div>
+
+    <!-- STUDENTS TAB VIEW -->
+    <div class="tab-view-container" id="studentsTabView">
+      <div class="card-panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <h3>Student Master Directory</h3>
+            <p>Maintain the master registry of enrolled students. Typing a registered GID in any QC sheet will auto-fill the student name and branch.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="tool-btn" id="btnAddStudentRow">➕ Add Student</button>
+            <button type="button" class="tool-btn btn-primary" id="btnSaveStudentsMaster">💾 Save Students</button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto; border:1px solid var(--grid-border);">
+          <table class="excel-table" id="studentsMasterTable" style="width:100%;">
+            <thead>
+              <tr class="tr-column-names">
+                <th style="width:40px;">#</th>
+                <th style="width:110px;">GID *</th>
+                <th>Student Name *</th>
+                <th>Branch</th>
+                <th>Batch</th>
+                <th>Faculty</th>
+                <th>Module</th>
+                <th>Admission No</th>
+                <th style="width:90px;">Status</th>
+                <th style="width:60px;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="studentsMasterTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- BRANCHES TAB VIEW -->
+    <div class="tab-view-container" id="branchesTabView">
+      <div class="card-panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <h3>Branch Management Directory (Synced with Branches Sheet)</h3>
+            <p>Branches registered here appear automatically across all QC dropdowns and Google Sheets. Thodupuzha and Chennai are active defaults.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="tool-btn" id="btnAddBranchRow">➕ Add Branch</button>
+            <button type="button" class="tool-btn btn-primary" id="btnSaveBranchesMaster">💾 Save Branches</button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto; border:1px solid var(--grid-border);">
+          <table class="excel-table" id="branchesMasterTable" style="width:100%;">
+            <thead>
+              <tr class="tr-column-names">
+                <th style="width:40px;">#</th>
+                <th style="width:180px;">Branch Name *</th>
+                <th style="width:120px;">Branch Code</th>
+                <th>Workbook / Sheet Link</th>
+                <th style="width:110px;">Active (Yes/No)</th>
+                <th style="width:60px;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="branchesMasterTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS TAB VIEW -->
+    <div class="tab-view-container" id="settingsTabView">
+      <!-- Pass Marks Table synced with Settings Sheet -->
+      <div class="card-panel" style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <h3>QC Pass Marks Table (Synced with Settings Sheet)</h3>
+            <p>Modify Theory and Practical pass marks. 1ST QC theory pass mark defaults to 20. Changes recalculate all Google Sheet formulas instantly!</p>
+          </div>
+          <button type="button" class="tool-btn btn-primary" id="btnSavePassMarksTable">💾 Save Pass Marks</button>
+        </div>
+
+        <div style="overflow-x:auto; border:1px solid var(--grid-border);">
+          <table class="excel-table" id="passMarksConfigTable" style="width:100%;">
+            <thead>
+              <tr class="tr-column-names">
+                <th style="width:130px;">QC Type</th>
+                <th>QC Title</th>
+                <th style="width:140px;">Theory Pass Mark</th>
+                <th style="width:140px;">Practical Pass Mark</th>
+                <th style="width:140px;">Overall Pass Mark</th>
+                <th style="width:100px;">Max Marks</th>
+                <th style="width:140px;">Passing Rule</th>
+              </tr>
+            </thead>
+            <tbody id="passMarksConfigTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card-panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <h3>System QC Configuration (JSON Backup)</h3>
+            <p>All QC definitions, part names, max marks, pass marks, and grade/level thresholds are stored here. Never hard-code!</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="tool-btn btn-danger" id="btnResetSettings">↺ Reset Defaults</button>
+            <button type="button" class="tool-btn btn-primary" id="btnSaveSettings">💾 Save JSON</button>
+          </div>
+        </div>
+
+        <textarea id="settingsJsonTextarea" class="settings-json-box" spellcheck="false"></textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 7. BOTTOM SHEET TABS -->
+  <div class="excel-sheet-tabs" id="sheetTabsBar">
+    <div class="sheet-tab active" data-tab="1ST QC">First QC</div>
+    <div class="sheet-tab" data-tab="2ND QC">Second QC</div>
+    <div class="sheet-tab" data-tab="SOFTWARE QC">Software QC</div>
+    <div class="sheet-tab" data-tab="CMT QC">CMT QC</div>
+    <div class="sheet-tab" data-tab="FINAL QC">Final QC</div>
+    <div class="sheet-tab" data-tab="BRANCHES">Branches</div>
+    <div class="sheet-tab" data-tab="STUDENTS">Students</div>
+    <div class="sheet-tab" data-tab="SETTINGS">Settings</div>
+  </div>
+
+  <!-- Toast Alert -->
+  <div class="toast-msg" id="toastBox">Notification</div>
+
+  <!-- Shared Configuration & Mock Data -->
+  <script src="config.js"></script>
+
+  <script>
+    // =========================================================================
+    // ADMIN SECURITY GUARD: Session-Based Access Control
+    // =========================================================================
+    if (sessionStorage.getItem("grandis_admin_logged_in") !== "true") {
+      alert("Access Denied: Please login with Admin credentials from the Home Page.");
+      window.location.href = "index.html#admin";
+    }
+
+    // =========================================================================
+    // GLOBAL STATE MANAGEMENT
+    // =========================================================================
+    let currentTab = "1ST QC"; // '1ST QC', '2ND QC', 'SOFTWARE QC', 'CMT QC', 'FINAL QC', 'STUDENTS', 'SETTINGS'
+    let appSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    let studentMaster = JSON.parse(JSON.stringify(OFFLINE_DB.students));
+    let branchesList = [
+      { name: "Thodupuzha", code: "THDPZ", link: "", active: "Yes" },
+      { name: "Chennai", code: "CHN", link: "", active: "Yes" },
+      { name: "Ernakulam", code: "EKM", link: "", active: "Yes" },
+      { name: "Calicut", code: "CLT", link: "", active: "Yes" }
+    ];
+    let activeCellCoordinates = { row: 0, col: 0, colKey: '' };
+
+    // Working sheets in memory: each QC tab keeps its own working batch state!
+    let qcSheetsState = {
+      "1ST QC": { info: { qcType: "1ST QC", qcDate: new Date().toISOString().split('T')[0], branch: "Thodupuzha", batch: "Batch 24", faculty: "Mr. Anand Kumar", incharge: "Mr. Vignesh R", hof: "Dr. K. R. Sharma", assessors: "R&D Quality Team (Er. Gokul / Er. Nithin)" }, rows: [] },
+      "2ND QC": { info: { qcType: "2ND QC", qcDate: new Date().toISOString().split('T')[0], branch: "Thodupuzha", batch: "Batch 24", faculty: "Mr. Anand Kumar", incharge: "Mr. Vignesh R", hof: "Dr. K. R. Sharma", assessors: "Senior QC Inspector" }, rows: [] },
+      "SOFTWARE QC": { info: { qcType: "SOFTWARE QC", qcDate: new Date().toISOString().split('T')[0], branch: "Thodupuzha", batch: "Batch 24", faculty: "Mr. Rajesh S", incharge: "Mr. Suresh K", hof: "Dr. K. R. Sharma", assessors: "Software QC Lead" }, rows: [] },
+      "CMT QC": { info: { qcType: "CMT QC", qcDate: new Date().toISOString().split('T')[0], branch: "Thodupuzha", batch: "Batch 24", faculty: "Mr. Senthil Nathan", incharge: "Mr. Arun P", hof: "Dr. K. R. Sharma", assessors: "CMT Assessor Panel" }, rows: [] },
+      "FINAL QC": { info: { qcType: "FINAL QC", qcDate: new Date().toISOString().split('T')[0], branch: "Thodupuzha", batch: "Batch 24", faculty: "Mr. Anand Kumar", incharge: "Mr. Vignesh R", hof: "Dr. K. R. Sharma", assessors: "Senior QC Board & Head of R&D" }, rows: [] }
+    };
+
+    // =========================================================================
+    // INITIALIZATION & STORAGE
+    // =========================================================================
+    function init() {
+      // 1. Load settings from localStorage if available
+      try {
+        const savedSettings = localStorage.getItem("grandis_qc_settings");
+        if (savedSettings) {
+          appSettings = JSON.parse(savedSettings);
+        }
+      } catch (e) {
+        console.warn("Could not load local settings:", e);
+      }
+
+      // 2. Load student master & branches
+      try {
+        const savedStudents = localStorage.getItem("grandis_qc_students");
+        if (savedStudents) {
+          studentMaster = JSON.parse(savedStudents);
+        }
+      } catch (e) {}
+
+      try {
+        const savedBranches = localStorage.getItem("grandis_qc_branches");
+        if (savedBranches) {
+          branchesList = JSON.parse(savedBranches);
+        }
+      } catch (e) {}
+
+      // 3. Pre-load demo sheets if storage is fresh
+      try {
+        const savedSheets = localStorage.getItem("grandis_qc_sheets");
+        if (savedSheets) {
+          const parsed = JSON.parse(savedSheets);
+          Object.keys(qcSheetsState).forEach(k => {
+            if (parsed[k]) qcSheetsState[k] = parsed[k];
+          });
+        } else {
+          // Pre-populate with OFFLINE_DB records
+          Object.keys(qcSheetsState).forEach(k => {
+            const batchKey = "Thodupuzha_Batch 24";
+            if (OFFLINE_DB.records[k] && OFFLINE_DB.records[k][batchKey]) {
+              qcSheetsState[k] = JSON.parse(JSON.stringify(OFFLINE_DB.records[k][batchKey]));
+            } else {
+              // Create 6 empty student rows
+              qcSheetsState[k].rows = studentMaster.map((s, idx) => ({
+                sn: idx + 1,
+                gid: s.gid,
+                name: s.name,
+                marks: {},
+                remarks: ""
+              }));
+            }
+          });
+          saveSheetsToStorage();
+        }
+      } catch (e) {}
+
+      // 4. Populate suggestion datalists from settings lists
+      refreshDatalists();
+
+      // 5. Setup bottom tabs click listeners
+      document.querySelectorAll('.sheet-tab').forEach(tab => {
+        tab.addEventListener('click', () => switchTab(tab.getAttribute('data-tab')));
+      });
+
+      // 6. Setup toolbar actions
+      const logoutBtn = document.getElementById('adminLogoutBtn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+          if (confirm('Are you sure you want to logout of the Admin Portal?')) {
+            sessionStorage.removeItem('grandis_admin_logged_in');
+            window.location.href = 'index.html';
+          }
+        });
+      }
+
+      document.getElementById('btnNewSheet').addEventListener('click', newSheet);
+      document.getElementById('btnSaveSheet').addEventListener('click', saveCurrentSheet);
+      document.getElementById('btnDeleteSheet').addEventListener('click', deleteCurrentSheet);
+      document.getElementById('btnAddRow').addEventListener('click', () => addStudentRow());
+      document.getElementById('btnImportExcel').addEventListener('click', () => document.getElementById('excelFileInput').click());
+      document.getElementById('excelFileInput').addEventListener('change', handleExcelImport);
+      document.getElementById('btnExportExcel').addEventListener('click', exportCurrentSheetToExcel);
+      document.getElementById('btnDownloadTemplate').addEventListener('click', downloadExcelBatchTemplate);
+      document.getElementById('savedBatchesSelect').addEventListener('change', handleOpenSavedSheet);
+
+      // 7. Setup Students Master actions
+      document.getElementById('btnAddStudentRow').addEventListener('click', addStudentMasterRow);
+      document.getElementById('btnSaveStudentsMaster').addEventListener('click', saveStudentsMaster);
+
+      // Setup Branches Master actions
+      document.getElementById('btnAddBranchRow').addEventListener('click', addBranchMasterRow);
+      document.getElementById('btnSaveBranchesMaster').addEventListener('click', saveBranchesMaster);
+
+      // Setup Settings Pass Marks actions
+      document.getElementById('btnSavePassMarksTable').addEventListener('click', savePassMarksConfigTable);
+
+      // 8. Setup Settings actions
+      document.getElementById('btnSaveSettings').addEventListener('click', saveSettingsJson);
+      document.getElementById('btnResetSettings').addEventListener('click', resetSettingsToDefault);
+
+      // 9. Sync Info Bar inputs with current sheet state
+      ['infoBranch', 'infoBatch', 'infoDate', 'infoFaculty', 'infoIncharge', 'infoHof', 'infoAssessors'].forEach(id => {
+        document.getElementById(id).addEventListener('input', syncInfoBarToState);
+      });
+
+      // Initial render
+      updateSavedBatchesDropdown();
+      switchTab("1ST QC");
+    }
+
+    function showToast(text, isAlert = false) {
+      const box = document.getElementById('toastBox');
+      box.textContent = text;
+      box.className = 'toast-msg ' + (isAlert ? 'toast-alert' : 'toast-success');
+      box.style.display = 'block';
+      setTimeout(() => { box.style.display = 'none'; }, 2600);
+    }
+
+    function refreshDatalists() {
+      const lists = appSettings.lists || {};
+      const map = {
+        branchList: lists.branches || [],
+        batchList: lists.batches || [],
+        facultyList: lists.faculty || [],
+        inchargeList: lists.incharge || [],
+        hofList: lists.hof || [],
+        assessorList: lists.assessors || []
+      };
+
+      Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.innerHTML = map[id].map(item => `<option value="${esc(item)}">`).join('');
+        }
+      });
+    }
+
+    function saveSheetsToStorage() {
+      try {
+        localStorage.setItem("grandis_qc_sheets", JSON.stringify(qcSheetsState));
+      } catch (e) {}
+    }
+
+    // =========================================================================
+    // TAB SWITCHING (QC Tabs vs Students vs Settings)
+    // =========================================================================
+    function switchTab(tabKey) {
+      currentTab = tabKey;
+
+      // Update tab active classes
+      document.querySelectorAll('.sheet-tab').forEach(t => {
+        if (t.getAttribute('data-tab') === tabKey) {
+          t.classList.add('active');
+        } else {
+          t.classList.remove('active');
+        }
+      });
+
+      const gridPane = document.getElementById('gridPane');
+      const infoBar = document.getElementById('infoBar');
+      const titleBanner = document.querySelector('.sheet-title-banner');
+      const formulaBar = document.querySelector('.excel-formula-bar');
+      const studentsView = document.getElementById('studentsTabView');
+      const settingsView = document.getElementById('settingsTabView');
+      const branchesView = document.getElementById('branchesTabView');
+
+      if (tabKey === 'STUDENTS') {
+        gridPane.style.display = 'none';
+        infoBar.style.display = 'none';
+        titleBanner.style.display = 'none';
+        formulaBar.style.display = 'none';
+        studentsView.classList.add('active');
+        settingsView.classList.remove('active');
+        branchesView.classList.remove('active');
+        renderStudentsMasterTable();
+      } else if (tabKey === 'BRANCHES') {
+        gridPane.style.display = 'none';
+        infoBar.style.display = 'none';
+        titleBanner.style.display = 'none';
+        formulaBar.style.display = 'none';
+        studentsView.classList.remove('active');
+        settingsView.classList.remove('active');
+        branchesView.classList.add('active');
+        renderBranchesMasterTable();
+      } else if (tabKey === 'SETTINGS') {
+        gridPane.style.display = 'none';
+        infoBar.style.display = 'none';
+        titleBanner.style.display = 'none';
+        formulaBar.style.display = 'none';
+        studentsView.classList.remove('active');
+        branchesView.classList.remove('active');
+        settingsView.classList.add('active');
+        renderPassMarksConfigTable();
+        document.getElementById('settingsJsonTextarea').value = JSON.stringify(appSettings, null, 2);
+      } else {
+        // QC Spreadsheet Grid Tab
+        studentsView.classList.remove('active');
+        branchesView.classList.remove('active');
+        settingsView.classList.remove('active');
+        gridPane.style.display = 'block';
+        infoBar.style.display = 'grid';
+        titleBanner.style.display = 'flex';
+        formulaBar.style.display = 'flex';
+
+        // Load info bar values for this QC
+        loadInfoBarFromState();
+
+        // Render Grid
+        renderQCGrid();
+      }
+    }
+
+    function loadInfoBarFromState() {
+      const sheet = qcSheetsState[currentTab];
+      if (!sheet) return;
+      const info = sheet.info || {};
+      const qcDef = appSettings.qcs[currentTab] || {};
+
+      document.getElementById('infoBranch').value = info.branch || '';
+      document.getElementById('infoBatch').value = info.batch || '';
+      const rawDate = info.qcDate || info.date || '';
+      document.getElementById('infoDate').value = rawDate ? String(rawDate).split('T')[0].split(' ')[0] : '';
+      document.getElementById('infoFaculty').value = info.faculty || '';
+      document.getElementById('infoIncharge').value = info.incharge || info.moduleIncharge || '';
+      document.getElementById('infoHof').value = info.hof || '';
+      document.getElementById('infoAssessors').value = info.assessors || '';
+
+      document.getElementById('sheetTitleDisplay').textContent = (qcDef.title || currentTab).toUpperCase();
+    }
+
+    function syncInfoBarToState() {
+      const sheet = qcSheetsState[currentTab];
+      if (!sheet) return;
+      if (!sheet.info) sheet.info = {};
+
+      sheet.info.branch = document.getElementById('infoBranch').value;
+      sheet.info.batch = document.getElementById('infoBatch').value;
+      sheet.info.qcDate = document.getElementById('infoDate').value;
+      sheet.info.faculty = document.getElementById('infoFaculty').value;
+      sheet.info.incharge = document.getElementById('infoIncharge').value;
+      sheet.info.hof = document.getElementById('infoHof').value;
+      sheet.info.assessors = document.getElementById('infoAssessors').value;
+      sheet.info.qcType = currentTab;
+    }
+
+    // =========================================================================
+    // DYNAMIC EXCEL GRID RENDERING FOR CURRENT QC TAB
+    // =========================================================================
+    function getColumnLetter(colIndex) {
+      let letter = '';
+      while (colIndex >= 0) {
+        letter = String.fromCharCode((colIndex % 26) + 65) + letter;
+        colIndex = Math.floor(colIndex / 26) - 1;
+      }
+      return letter;
+    }
+
+    function renderQCGrid() {
+      const qcDef = appSettings.qcs[currentTab];
+      const sheet = qcSheetsState[currentTab];
+      if (!qcDef || !sheet) return;
+
+      const table = document.getElementById('qcGridTable');
+      table.innerHTML = '';
+
+      // Build column definitions based on QC configuration
+      const columns = [];
+
+      // Optional SN column (e.g. SOFTWARE QC)
+      if (qcDef.hasSn) {
+        columns.push({ key: 'sn', name: 'SN', width: '45px', editable: true, isNumeric: true });
+      }
+
+      // ID column (GID or MID / GID)
+      columns.push({ key: 'gid', name: qcDef.idLabel || 'GID', width: '100px', editable: true, isId: true });
+
+      // Student Name
+      columns.push({ key: 'name', name: 'Student Name', width: '180px', editable: true, isName: true });
+
+      // Sections & Marks Parts
+      const groupHeaders = [];
+      let currentColIdx = 0;
+
+      // Group for ID & Name
+      const baseSpan = qcDef.hasSn ? 3 : 2;
+      groupHeaders.push({ name: 'Student Details', span: baseSpan });
+      currentColIdx += baseSpan;
+
+      qcDef.sections.forEach(sec => {
+        let secSpan = sec.parts.length;
+        sec.parts.forEach(part => {
+          columns.push({
+            key: `part_${part.name}`,
+            partName: part.name,
+            name: part.name,
+            max: part.max,
+            width: '90px',
+            editable: true,
+            isMark: true
+          });
+        });
+
+        // If section has its own pass mark, add section Score & Pass/Fail columns
+        if (sec.passMark !== null && sec.passMark !== undefined) {
+          secSpan += 2;
+          columns.push({
+            key: `sec_score_${sec.name}`,
+            secName: sec.name,
+            name: `${sec.name} Score`,
+            width: '85px',
+            isComputed: true
+          });
+          columns.push({
+            key: `sec_pf_${sec.name}`,
+            secName: sec.name,
+            name: `${sec.name} Pass/Fail`,
+            width: '95px',
+            isComputed: true,
+            isStatus: true
+          });
+        }
+
+        groupHeaders.push({ name: sec.name, span: secSpan });
+        currentColIdx += secSpan;
+      });
+
+      // Overall Columns
+      if (qcDef.overall.columnHeaders) {
+        // Custom overall columns (e.g. CMT QC: Total, Level, Pass/Fail; Software QC: Score, Pass/ Fail, Category)
+        qcDef.overall.columnHeaders.forEach(hdr => {
+          const lower = hdr.toLowerCase();
+          const isStatus = lower.includes('pass');
+          columns.push({
+            key: `overall_${hdr}`,
+            name: hdr,
+            width: '90px',
+            isComputed: true,
+            isStatus: isStatus
+          });
+        });
+        groupHeaders.push({ name: 'Overall Evaluation', span: qcDef.overall.columnHeaders.length });
+      } else {
+        // Standard overall columns: Total, Percentage, Result, Grade/Level
+        columns.push({ key: 'overall_total', name: 'Total', width: '75px', isComputed: true });
+        columns.push({ key: 'overall_percentage', name: '%', width: '70px', isComputed: true });
+        columns.push({ key: 'overall_result', name: 'Result', width: '85px', isComputed: true, isStatus: true });
+        columns.push({ key: 'overall_grade', name: qcDef.overall.labelType || 'Grade', width: '80px', isComputed: true });
+        groupHeaders.push({ name: 'Overall Evaluation', span: 4 });
+      }
+
+      // Remarks column
+      columns.push({ key: 'remarks', name: 'Remarks', width: '220px', editable: true });
+      groupHeaders.push({ name: 'Notes', span: 1 });
+
+      // Ensure sheet has rows
+      if (!sheet.rows || sheet.rows.length === 0) {
+        sheet.rows = [
+          { sn: 1, gid: '', name: '', marks: {}, remarks: '' },
+          { sn: 2, gid: '', name: '', marks: {}, remarks: '' },
+          { sn: 3, gid: '', name: '', marks: {}, remarks: '' },
+          { sn: 4, gid: '', name: '', marks: {}, remarks: '' },
+          { sn: 5, gid: '', name: '', marks: {}, remarks: '' }
+        ];
+      }
+
+      // -----------------------------------------------------------------------
+      // 1. Column Letter Header Row (A, B, C...)
+      // -----------------------------------------------------------------------
+      const thead = document.createElement('thead');
+      const letterRow = document.createElement('tr');
+      const cornerTh = document.createElement('th');
+      cornerTh.className = 'th-corner';
+      letterRow.appendChild(cornerTh);
+
+      columns.forEach((col, idx) => {
+        const th = document.createElement('th');
+        th.className = 'th-col-letter';
+        th.style.width = col.width;
+        th.textContent = getColumnLetter(idx);
+        letterRow.appendChild(th);
+      });
+      thead.appendChild(letterRow);
+
+      // -----------------------------------------------------------------------
+      // 2. Group Header Row (Theory, Practical, Overall...)
+      // -----------------------------------------------------------------------
+      const groupRow = document.createElement('tr');
+      groupRow.className = 'tr-group-header';
+      const emptyNumTh1 = document.createElement('th');
+      emptyNumTh1.className = 'td-row-num';
+      groupRow.appendChild(emptyNumTh1);
+
+      groupHeaders.forEach(grp => {
+        const th = document.createElement('th');
+        th.colSpan = grp.span;
+        th.textContent = grp.name;
+        groupRow.appendChild(th);
+      });
+      thead.appendChild(groupRow);
+
+      // -----------------------------------------------------------------------
+      // 3. Column Names Row
+      // -----------------------------------------------------------------------
+      const namesRow = document.createElement('tr');
+      namesRow.className = 'tr-column-names';
+      const emptyNumTh2 = document.createElement('th');
+      emptyNumTh2.className = 'td-row-num';
+      emptyNumTh2.textContent = '#';
+      namesRow.appendChild(emptyNumTh2);
+
+      columns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.name;
+        th.style.width = col.width;
+        if (col.isMark) {
+          th.title = `Max marks: ${col.max || 8}`;
+        }
+        namesRow.appendChild(th);
+      });
+      thead.appendChild(namesRow);
+      table.appendChild(thead);
+
+      // -----------------------------------------------------------------------
+      // 4. Data Rows (Student Rows)
+      // -----------------------------------------------------------------------
+      const tbody = document.createElement('tbody');
+
+      sheet.rows.forEach((row, rowIdx) => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-row-idx', rowIdx);
+
+        // Row Number TD
+        const numTd = document.createElement('td');
+        numTd.className = 'td-row-num';
+        numTd.textContent = rowIdx + 1;
+        tr.appendChild(numTd);
+
+        // Compute row evaluations using Universal Calculation Engine
+        const evalRes = evaluateQC(qcDef, row.marks || {});
+
+        columns.forEach((col, colIdx) => {
+          const td = document.createElement('td');
+          td.setAttribute('data-col-idx', colIdx);
+          td.setAttribute('data-col-key', col.key);
+          td.style.width = col.width;
+
+          // Compute cell contents
+          if (col.isComputed) {
+            td.className = 'cell-computed';
+            renderComputedCell(td, col, evalRes, qcDef);
+          } else {
+            // Editable Cell
+            td.className = 'cell-editable' + (col.isMark ? ' cell-numeric' : (col.key === 'sn' ? ' cell-center' : ''));
+            td.contentEditable = "true";
+            td.spellcheck = false;
+
+            let val = '';
+            if (col.key === 'sn') {
+              val = row.sn !== undefined ? row.sn : (rowIdx + 1);
+            } else if (col.key === 'gid') {
+              val = row.gid || '';
+              // Duplicate GID check & warning
+              if (val) {
+                const count = sheet.rows.filter(r => (r.gid || '').trim().toUpperCase() === val.trim().toUpperCase()).length;
+                if (count > 1) {
+                  td.style.backgroundColor = '#ffc7ce';
+                  td.style.color = '#9c0006';
+                  td.title = 'Warning: Duplicate GID number detected in this batch!';
+                }
+              }
+            } else if (col.key === 'name') {
+              val = row.name || '';
+            } else if (col.isMark) {
+              val = (row.marks && row.marks[col.partName] !== undefined && row.marks[col.partName] !== null)
+                ? row.marks[col.partName]
+                : '';
+            } else if (col.key === 'remarks') {
+              val = row.remarks || '';
+            }
+
+            td.textContent = val;
+
+            // Cell Event Handlers
+            td.addEventListener('focus', (e) => handleCellFocus(e, rowIdx, colIdx, col, td));
+            td.addEventListener('blur', (e) => handleCellBlur(e, rowIdx, col, td));
+            td.addEventListener('keydown', (e) => handleCellKeyDown(e, rowIdx, colIdx, col, td));
+            td.addEventListener('paste', (e) => handleCellPaste(e, rowIdx, colIdx));
+          }
+
+          tr.appendChild(td);
+        });
+
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+    }
+
+    /**
+     * Renders computed formula values into grid cell (Score, Pass/Fail, Total, Result, Grade)
+     */
+    function renderComputedCell(td, col, evalRes, qcDef) {
+      let text = '';
+      let statusClass = '';
+
+      // 1. Section Score & Pass/Fail
+      if (col.key.startsWith('sec_score_')) {
+        const sec = evalRes.sections.find(s => s.name === col.secName);
+        text = (sec && sec.entered > 0) ? sec.total : '';
+      } else if (col.key.startsWith('sec_pf_')) {
+        const sec = evalRes.sections.find(s => s.name === col.secName);
+        if (sec && sec.entered > 0) {
+          text = sec.status;
+          if (text === 'PASS') statusClass = 'val-pass';
+          else if (text === 'FAIL') statusClass = 'val-fail';
+          else if (text === 'PENDING') statusClass = 'val-pending';
+        }
+      }
+      // 2. Custom Overall Columns (CMT QC, Software QC)
+      else if (col.key.startsWith('overall_')) {
+        const hdr = (col.name || '').toLowerCase();
+
+        if (col.key === 'overall_percentage' || hdr === '%' || hdr.includes('percent')) {
+          text = evalRes.percentage ? `${evalRes.percentage}%` : '';
+        } else if (hdr === 'total' || hdr === 'score') {
+          text = evalRes.grandTotal !== '' ? evalRes.grandTotal : '';
+        } else if (hdr.includes('pass') || hdr.includes('result')) {
+          text = evalRes.overallResult || '';
+          if (text === 'PASS') statusClass = 'val-pass';
+          else if (text === 'FAIL') statusClass = 'val-fail';
+          else if (text === 'PENDING') statusClass = 'val-pending';
+        } else if (col.key === 'overall_grade' || hdr.includes('grade') || hdr.includes('level') || hdr.includes('category')) {
+          text = evalRes.overallLabel || '';
+        }
+      }
+
+      td.textContent = text;
+      if (statusClass) {
+        td.classList.add(statusClass);
+      }
+    }
+
+    // =========================================================================
+    // EXCEL GRID INTERACTION & KEYBOARD NAVIGATION
+    // =========================================================================
+    function handleCellFocus(e, rowIdx, colIdx, col, td) {
+      activeCellCoordinates = { row: rowIdx, col: colIdx, colKey: col.key };
+      const cellAddress = getColumnLetter(colIdx) + (rowIdx + 1);
+      document.getElementById('cellAddressDisplay').textContent = cellAddress;
+      document.getElementById('formulaInputDisplay').value = td.textContent;
+    }
+
+    function handleCellBlur(e, rowIdx, col, td) {
+      const sheet = qcSheetsState[currentTab];
+      const row = sheet.rows[rowIdx];
+      if (!row) return;
+
+      const rawVal = td.textContent.trim();
+
+      if (col.isMark) {
+        // MARK VALIDATION: 0 to 8 only (half marks allowed e.g. 6.5)
+        if (rawVal === '') {
+          delete row.marks[col.partName];
+          recalculateRow(rowIdx);
+        } else {
+          const num = parseFloat(rawVal);
+          if (isNaN(num) || num < 0 || num > 8) {
+            // Restore previous value
+            const prev = (row.marks && row.marks[col.partName] !== undefined) ? row.marks[col.partName] : '';
+            td.textContent = prev;
+            showToast("Maximum mark for this part is 8.", true);
+            return;
+          } else {
+            // Valid mark
+            row.marks[col.partName] = num;
+            td.textContent = num; // format cleanly
+            recalculateRow(rowIdx);
+          }
+        }
+      } else if (col.isId) {
+        // GID AUTO-LOOKUP in Student Master
+        row.gid = rawVal;
+        if (rawVal) {
+          const match = studentMaster.find(s => (s.gid || '').trim().toUpperCase() === rawVal.toUpperCase());
+          if (match) {
+            row.name = match.name;
+            // Also populate branch in info bar if empty
+            const branchInput = document.getElementById('infoBranch');
+            if (!branchInput.value && match.branch) {
+              branchInput.value = match.branch;
+              syncInfoBarToState();
+            }
+            // Update name cell in table
+            const nameTd = document.querySelector(`tr[data-row-idx="${rowIdx}"] td[data-col-key="name"]`);
+            if (nameTd) nameTd.textContent = match.name;
+          }
+        }
+      } else if (col.isName) {
+        row.name = rawVal;
+      } else if (col.key === 'sn') {
+        row.sn = rawVal;
+      } else if (col.key === 'remarks') {
+        row.remarks = rawVal;
+      }
+    }
+
+    /**
+     * Recalculates single row formulas instantly without re-rendering entire table
+     */
+    function recalculateRow(rowIdx) {
+      const qcDef = appSettings.qcs[currentTab];
+      const sheet = qcSheetsState[currentTab];
+      const row = sheet.rows[rowIdx];
+      if (!row) return;
+
+      const evalRes = evaluateQC(qcDef, row.marks || {});
+      const tr = document.querySelector(`tr[data-row-idx="${rowIdx}"]`);
+      if (!tr) return;
+
+      tr.querySelectorAll('td.cell-computed').forEach(td => {
+        const colKey = td.getAttribute('data-col-key');
+        td.className = 'cell-computed'; // reset status classes
+
+        const dummyCol = {
+          key: colKey,
+          name: colKey.replace('overall_', '').replace('sec_score_', '').replace('sec_pf_', ''),
+          secName: colKey.replace('sec_score_', '').replace('sec_pf_', '')
+        };
+        renderComputedCell(td, dummyCol, evalRes, qcDef);
+      });
+    }
+
+    function handleCellKeyDown(e, rowIdx, colIdx, col, td) {
+      // ENTER or DOWN: Commit & Move down (Enter on last row adds row!)
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        td.blur();
+        const sheet = qcSheetsState[currentTab];
+        if (rowIdx === sheet.rows.length - 1) {
+          // On last row, automatically append a new student row!
+          addStudentRow();
+          setTimeout(() => {
+            const nextTd = document.querySelector(`tr[data-row-idx="${rowIdx + 1}"] td[data-col-idx="${colIdx}"]`);
+            if (nextTd) nextTd.focus();
+          }, 30);
+        } else {
+          const nextTd = document.querySelector(`tr[data-row-idx="${rowIdx + 1}"] td[data-col-idx="${colIdx}"]`);
+          if (nextTd) nextTd.focus();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        td.blur();
+        const nextTd = document.querySelector(`tr[data-row-idx="${rowIdx + 1}"] td[data-col-idx="${colIdx}"]`);
+        if (nextTd) nextTd.focus();
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        td.blur();
+        const prevTd = document.querySelector(`tr[data-row-idx="${rowIdx - 1}"] td[data-col-idx="${colIdx}"]`);
+        if (prevTd) prevTd.focus();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        td.blur();
+        const delta = e.shiftKey ? -1 : 1;
+        focusNextEditableCell(rowIdx, colIdx, delta);
+        return;
+      }
+    }
+
+    function focusNextEditableCell(rowIdx, colIdx, delta) {
+      const cells = Array.from(document.querySelectorAll('.cell-editable'));
+      const active = document.activeElement;
+      let curIndex = cells.indexOf(active);
+      if (curIndex === -1) curIndex = 0;
+      let nextIndex = curIndex + delta;
+      if (nextIndex >= 0 && nextIndex < cells.length) {
+        cells[nextIndex].focus();
+      }
+    }
+
+    /**
+     * Excel Paste Handler: Paste rows and columns from Excel
+     */
+    function handleCellPaste(e, startRowIdx, startColIdx) {
+      e.preventDefault();
+      const clipText = (e.clipboardData || window.clipboardData).getData('text');
+      if (!clipText) return;
+
+      const lines = clipText.split(/\r\n|\n|\r/).filter(l => l.length > 0);
+      const sheet = qcSheetsState[currentTab];
+      const qcDef = appSettings.qcs[currentTab];
+      let hasInvalidMark = false;
+
+      lines.forEach((line, lineOffset) => {
+        const targetRowIdx = startRowIdx + lineOffset;
+        if (targetRowIdx >= sheet.rows.length) {
+          // Append row if needed
+          sheet.rows.push({
+            sn: targetRowIdx + 1,
+            gid: '',
+            name: '',
+            marks: {},
+            remarks: ''
+          });
+        }
+
+        const values = line.split('\t');
+        const targetRow = sheet.rows[targetRowIdx];
+
+        // Find editable cells starting at startColIdx
+        const rowTds = Array.from(document.querySelectorAll(`tr[data-row-idx="${targetRowIdx}"] td.cell-editable`));
+        const startEditablePos = rowTds.findIndex(td => parseInt(td.getAttribute('data-col-idx')) >= startColIdx);
+        if (startEditablePos === -1) return;
+
+        values.forEach((val, valOffset) => {
+          const targetTd = rowTds[startEditablePos + valOffset];
+          if (!targetTd) return;
+
+          const colKey = targetTd.getAttribute('data-col-key');
+          const cleanVal = val.trim();
+
+          if (colKey.startsWith('part_')) {
+            const partName = colKey.replace('part_', '');
+            if (cleanVal === '') {
+              delete targetRow.marks[partName];
+            } else {
+              const num = parseFloat(cleanVal);
+              if (!isNaN(num) && num >= 0 && num <= 8) {
+                targetRow.marks[partName] = num;
+              } else {
+                hasInvalidMark = true;
+              }
+            }
+          } else if (colKey === 'gid') {
+            targetRow.gid = cleanVal;
+            const match = studentMaster.find(s => (s.gid || '').trim().toUpperCase() === cleanVal.toUpperCase());
+            if (match) targetRow.name = match.name;
+          } else if (colKey === 'name') {
+            targetRow.name = cleanVal;
+          } else if (colKey === 'sn') {
+            targetRow.sn = cleanVal;
+          } else if (colKey === 'remarks') {
+            targetRow.remarks = cleanVal;
+          }
+        });
+      });
+
+      renderQCGrid();
+
+      if (hasInvalidMark) {
+        showToast("Maximum mark for this part is 8. Invalid marks skipped.", true);
+      } else {
+        showToast("Pasted data from Excel successfully.");
+      }
+    }
+
+    // =========================================================================
+    // SHEET ACTIONS (New, Save, Delete, Add Row, Export, Import, Template)
+    // =========================================================================
+    function addStudentRow() {
+      const sheet = qcSheetsState[currentTab];
+      const newSn = sheet.rows.length + 1;
+      sheet.rows.push({
+        sn: newSn,
+        gid: '',
+        name: '',
+        marks: {},
+        remarks: ''
+      });
+      renderQCGrid();
+
+      // Focus the GID cell of the newly created row
+      setTimeout(() => {
+        const lastTr = document.querySelector(`tr[data-row-idx="${newSn - 1}"]`);
+        if (lastTr) {
+          const gidTd = lastTr.querySelector('td[data-col-key="gid"]') || lastTr.querySelector('.cell-editable');
+          if (gidTd) gidTd.focus();
+        }
+      }, 40);
+    }
+
+    function newSheet() {
+      if (confirm(`Clear and create a new evaluation sheet for ${currentTab}?`)) {
+        qcSheetsState[currentTab] = {
+          info: {
+            qcType: currentTab,
+            qcDate: new Date().toISOString().split('T')[0],
+            branch: document.getElementById('infoBranch').value || 'Thodupuzha',
+            batch: document.getElementById('infoBatch').value || 'Batch 24',
+            faculty: document.getElementById('infoFaculty').value || '',
+            incharge: document.getElementById('infoIncharge').value || '',
+            hof: document.getElementById('infoHof').value || '',
+            assessors: document.getElementById('infoAssessors').value || ''
+          },
+          rows: [
+            { sn: 1, gid: '', name: '', marks: {}, remarks: '' },
+            { sn: 2, gid: '', name: '', marks: {}, remarks: '' },
+            { sn: 3, gid: '', name: '', marks: {}, remarks: '' },
+            { sn: 4, gid: '', name: '', marks: {}, remarks: '' },
+            { sn: 5, gid: '', name: '', marks: {}, remarks: '' }
+          ]
+        };
+        renderQCGrid();
+        showToast(`Created blank sheet for ${currentTab}`);
+      }
+    }
+
+    async function saveCurrentSheet() {
+      syncInfoBarToState();
+      const sheet = qcSheetsState[currentTab];
+      const branch = (sheet.info.branch || '').trim();
+      const batch = (sheet.info.batch || '').trim();
+
+      if (!branch) {
+        showToast("Please enter Branch name before saving.", true);
+        document.getElementById('infoBranch').focus();
+        return;
+      }
+      if (!batch) {
+        showToast("Please enter Batch before saving.", true);
+        document.getElementById('infoBatch').focus();
+        return;
+      }
+
+      // Drop fully empty rows (rows where GID, Name, and all marks are blank)
+      sheet.rows = sheet.rows.filter(r => {
+        const hasGid = (r.gid || '').trim() !== '';
+        const hasName = (r.name || '').trim() !== '';
+        const hasMarks = r.marks && Object.keys(r.marks).some(k => r.marks[k] !== '' && r.marks[k] !== undefined);
+        return hasGid || hasName || hasMarks;
+      });
+
+      // Update strength in info
+      sheet.info.strength = sheet.rows.length;
+
+      // 1. Save active working sheets locally
+      saveSheetsToStorage();
+
+      // 2. Save full batch snapshot to archive
+      const batchKey = `${currentTab}_${branch}_${batch}`;
+      try {
+        const archive = JSON.parse(localStorage.getItem("grandis_qc_saved_batches_data") || "{}");
+        archive[batchKey] = JSON.parse(JSON.stringify(sheet));
+        localStorage.setItem("grandis_qc_saved_batches_data", JSON.stringify(archive));
+      } catch (e) {}
+
+      // 3. Save to saved batches list in localStorage
+      let savedList = [];
+      try {
+        const raw = localStorage.getItem("grandis_qc_saved_batches");
+        if (raw) savedList = JSON.parse(raw);
+      } catch (e) {}
+
+      const entry = {
+        branch: branch,
+        qc: currentTab,
+        batch: batch,
+        date: sheet.info.qcDate || '',
+        id: batchKey
+      };
+
+      savedList = savedList.filter(b => b.id !== entry.id);
+      savedList.unshift(entry);
+      localStorage.setItem("grandis_qc_saved_batches", JSON.stringify(savedList));
+      updateSavedBatchesDropdown();
+
+      // 4. If Google Apps Script is online, sync to cloud Google Sheet
+      const scriptUrl = (typeof GOOGLE_SCRIPT_URL !== "undefined" ? GOOGLE_SCRIPT_URL : (typeof API_URL !== "undefined" ? API_URL : "")).trim();
+      const isOnline = scriptUrl && scriptUrl !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE" && scriptUrl.startsWith("http");
+
+      if (isOnline) {
+        showToast("Saving locally & syncing to Google Sheets...", false);
+        try {
+          await api('saveBatch', {}, 'POST', { batchData: sheet });
+          showToast(`Sheet saved & synced to Google Sheets (${sheet.rows.length} students)`);
+        } catch (syncErr) {
+          console.warn("Cloud sync warning:", syncErr);
+          showToast(`Saved locally (${sheet.rows.length} students). Sync note: ${syncErr.message}`, true);
+        }
+      } else {
+        showToast(`Sheet saved! ${sheet.rows.length} students are now live on the website.`);
+      }
+    }
+
+    function deleteCurrentSheet() {
+      const sheet = qcSheetsState[currentTab];
+      const branch = sheet.info.branch || '';
+      const batch = sheet.info.batch || '';
+      const id = `${currentTab}_${branch}_${batch}`;
+
+      if (confirm(`Delete saved sheet for ${currentTab} (${branch} - ${batch})?`)) {
+        let savedList = [];
+        try {
+          const raw = localStorage.getItem("grandis_qc_saved_batches");
+          if (raw) savedList = JSON.parse(raw);
+        } catch (e) {}
+
+        savedList = savedList.filter(b => b.id !== id);
+        localStorage.setItem("grandis_qc_saved_batches", JSON.stringify(savedList));
+
+        try {
+          const archive = JSON.parse(localStorage.getItem("grandis_qc_saved_batches_data") || "{}");
+          delete archive[id];
+          localStorage.setItem("grandis_qc_saved_batches_data", JSON.stringify(archive));
+        } catch (e) {}
+
+        updateSavedBatchesDropdown();
+
+        newSheet();
+        showToast("Sheet deleted.");
+      }
+    }
+
+    function updateSavedBatchesDropdown() {
+      const select = document.getElementById('savedBatchesSelect');
+      let list = [];
+      try {
+        const raw = localStorage.getItem("grandis_qc_saved_batches");
+        if (raw) list = JSON.parse(raw);
+      } catch (e) {}
+
+      // Filter by current QC or show all
+      let html = '<option value="">-- Open Saved Sheet --</option>';
+      list.forEach(item => {
+        html += `<option value="${esc(item.id)}">${esc(item.qc)} | ${esc(item.branch)} - ${esc(item.batch)} (${esc(item.date || 'No Date')})</option>`;
+      });
+      select.innerHTML = html;
+    }
+
+    function handleOpenSavedSheet(e) {
+      const val = e.target.value;
+      if (!val) return;
+
+      const [qc, branch, batch] = val.split('_');
+      if (qc) {
+        try {
+          const archive = JSON.parse(localStorage.getItem("grandis_qc_saved_batches_data") || "{}");
+          if (archive[val]) {
+            qcSheetsState[qc] = JSON.parse(JSON.stringify(archive[val]));
+          }
+        } catch (e) {}
+
+        switchTab(qc);
+        loadInfoBarFromState();
+        renderQCGrid();
+        showToast(`Loaded ${qc} (${branch} - ${batch})`);
+      }
+    }
+
+    // =========================================================================
+    // EXCEL IMPORT & EXPORT (SheetJS 0.18.5)
+    // =========================================================================
+    function exportCurrentSheetToExcel() {
+      syncInfoBarToState();
+      const sheet = qcSheetsState[currentTab];
+      const qcDef = appSettings.qcs[currentTab];
+      const info = sheet.info || {};
+
+      // Prepare worksheet rows with Title & Info bar lines
+      const wsData = [
+        ["GRANDIS TECHNOLOGY PVT. LTD. - R&D DEPARTMENT"],
+        [qcDef.title.toUpperCase()],
+        [],
+        ["QC Date", info.qcDate || "", "Faculty", info.faculty || ""],
+        ["Module Incharge", info.incharge || "", "HOF", info.hof || ""],
+        ["Branch", info.branch || "", "Batch", info.batch || ""],
+        ["Strength", sheet.rows.length, "QC Assessors", info.assessors || ""],
+        []
+      ];
+
+      // Prepare Header Row
+      const headerRow = [];
+      if (qcDef.hasSn) headerRow.push("SN");
+      headerRow.push(qcDef.idLabel || "GID");
+      headerRow.push("Name");
+
+      qcDef.sections.forEach(sec => {
+        sec.parts.forEach(p => headerRow.push(p.name));
+        if (sec.passMark !== null && sec.passMark !== undefined) {
+          headerRow.push(`${sec.name} Score`);
+          headerRow.push(`${sec.name} Pass/Fail`);
+        }
+      });
+
+      if (qcDef.overall.columnHeaders) {
+        qcDef.overall.columnHeaders.forEach(hdr => headerRow.push(hdr));
+      } else {
+        headerRow.push("Total");
+        headerRow.push("Percentage");
+        headerRow.push("Result");
+        headerRow.push(qcDef.overall.labelType || "Grade");
+      }
+      headerRow.push("Remarks");
+
+      wsData.push(headerRow);
+
+      // Prepare Data Rows
+      sheet.rows.forEach((r, idx) => {
+        const evalRes = evaluateQC(qcDef, r.marks || {});
+        const rowData = [];
+
+        if (qcDef.hasSn) rowData.push(r.sn || (idx + 1));
+        rowData.push(r.gid || "");
+        rowData.push(r.name || "");
+
+        qcDef.sections.forEach(sec => {
+          sec.parts.forEach(p => {
+            const m = r.marks ? r.marks[p.name] : "";
+            rowData.push(m !== undefined && m !== "" ? Number(m) : "");
+          });
+
+          if (sec.passMark !== null && sec.passMark !== undefined) {
+            const secSummary = evalRes.sections.find(s => s.name === sec.name);
+            rowData.push(secSummary && secSummary.entered > 0 ? secSummary.total : "");
+            rowData.push(secSummary && secSummary.entered > 0 ? secSummary.status : "");
+          }
+        });
+
+        if (qcDef.overall.columnHeaders) {
+          qcDef.overall.columnHeaders.forEach(hdr => {
+            const l = hdr.toLowerCase();
+            if (l === 'total' || l === 'score') rowData.push(evalRes.grandTotal);
+            else if (l.includes('pass') || l.includes('result')) rowData.push(evalRes.overallResult);
+            else rowData.push(evalRes.overallLabel);
+          });
+        } else {
+          rowData.push(evalRes.grandTotal);
+          rowData.push(evalRes.percentage ? `${evalRes.percentage}%` : "");
+          rowData.push(evalRes.overallResult);
+          rowData.push(evalRes.overallLabel);
+        }
+
+        rowData.push(r.remarks || "");
+        wsData.push(rowData);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, currentTab);
+
+      const filename = `${currentTab.replace(/\s+/g, '_')}_${info.branch || 'Branch'}_${info.batch || 'Batch'}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      showToast(`Exported ${filename}`);
+    }
+
+    /**
+     * Excel Import: Flexible header mapping (handles typos like "cheking", spaces, case)
+     */
+    function handleExcelImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const firstSheetName = wb.SheetNames[0];
+          const ws = wb.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+          if (!rows || rows.length === 0) {
+            showToast("Selected Excel file is empty.", true);
+            return;
+          }
+
+          // Normalize strings for fuzzy matching
+          const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+          // Find header row containing GID or MID
+          let headerRowIdx = -1;
+          for (let r = 0; r < rows.length; r++) {
+            const line = rows[r];
+            if (line.some(cell => norm(cell).includes('gid') || norm(cell).includes('mid'))) {
+              headerRowIdx = r;
+              break;
+            }
+          }
+
+          if (headerRowIdx === -1) {
+            showToast("Could not find GID or MID column in Excel file.", true);
+            return;
+          }
+
+          // Combine with row above if group headers exist
+          const headerLine = rows[headerRowIdx];
+          const colMap = {};
+
+          headerLine.forEach((colName, cIdx) => {
+            let colStr = norm(colName);
+            // Check for common typos
+            if (colStr.includes('cheking')) colStr = colStr.replace('cheking', 'checking');
+            if (colStr.includes('jumb')) colStr = colStr.replace('jumb', 'jum');
+            if (colStr.includes('conn')) colStr = colStr.replace('conn', 'connector');
+            colMap[cIdx] = colStr;
+          });
+
+          const qcDef = appSettings.qcs[currentTab];
+          const importedStudents = [];
+
+          // Parse data rows
+          for (let r = headerRowIdx + 1; r < rows.length; r++) {
+            const line = rows[r];
+            if (!line || line.length === 0) continue;
+
+            let gid = '';
+            let name = '';
+            let marks = {};
+            let remarks = '';
+            let sn = '';
+
+            headerLine.forEach((_, cIdx) => {
+              const colStr = colMap[cIdx];
+              const val = line[cIdx];
+              if (val === undefined || val === '') return;
+
+              if (colStr.includes('gid') || colStr.includes('mid')) {
+                gid = String(val).trim();
+              } else if (colStr.includes('name')) {
+                name = String(val).trim();
+              } else if (colStr === 'sn') {
+                sn = String(val).trim();
+              } else if (colStr.includes('remark')) {
+                remarks = String(val).trim();
+              } else {
+                // Check if matches any part name in current QC
+                qcDef.sections.forEach(sec => {
+                  sec.parts.forEach(part => {
+                    const pNorm = norm(part.name);
+                    if (colStr === pNorm || colStr.includes(pNorm)) {
+                      let num = parseFloat(val);
+                      if (!isNaN(num)) {
+                        // Clamp to max
+                        if (num > 8) num = 8;
+                        if (num < 0) num = 0;
+                        marks[part.name] = num;
+                      }
+                    }
+                  });
+                });
+              }
+            });
+
+            if (gid || name || Object.keys(marks).length > 0) {
+              // Auto-fill student name from master if blank
+              if (!name && gid) {
+                const match = studentMaster.find(s => (s.gid || '').trim().toUpperCase() === gid.toUpperCase());
+                if (match) name = match.name;
+              }
+
+              importedStudents.push({
+                sn: sn || (importedStudents.length + 1),
+                gid: gid,
+                name: name,
+                marks: marks,
+                remarks: remarks
+              });
+            }
+          }
+
+          if (importedStudents.length > 0) {
+            qcSheetsState[currentTab].rows = importedStudents;
+            renderQCGrid();
+            showToast(`Imported ${importedStudents.length} students from Excel.`);
+          } else {
+            showToast("No valid student rows found under header.", true);
+          }
+
+        } catch (err) {
+          console.error("Import error:", err);
+          showToast("Failed to parse Excel file: " + err.message, true);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = ''; // reset file input
+    }
+
+    /**
+     * Download Official Batch Template .xlsx
+     * Tab 1: Batch Info (yellow cells)
+     * Tabs 2-6: One tab per QC with formula headers, rules box, sample rows
+     * Tab 7: How to use
+     */
+    function downloadExcelBatchTemplate() {
+      const wb = XLSX.utils.book_new();
+
+      // 1. Tab: Settings
+      const settingsData = [
+        ["QC Type", "QC Full Name", "Theory Pass Mark", "Practical Pass Mark", "Overall Pass Mark", "Max Marks", "Passing Rule"],
+        ["1ST QC", "First Term Quality Checking Evaluation Result", 20, 18, "NA", 56, "SECTIONS_PASS"],
+        ["2ND QC", "Second Term Quality Checking Evaluation Result", 30, 18, "NA", 64, "SECTIONS_PASS"],
+        ["CMT QC", "CMT QC", "NA", "NA", 30, 40, "TOTAL_PASS"],
+        ["SOFTWARE QC", "Software Quality Checking Evaluation Result", "NA", "NA", 24, 32, "TOTAL_PASS"],
+        ["FINAL QC", "Final QC Report", 36, 24, "NA", 80, "SECTIONS_PASS"]
+      ];
+      const wsSettings = XLSX.utils.aoa_to_sheet(settingsData);
+      XLSX.utils.book_append_sheet(wb, wsSettings, "Settings");
+
+      // 2. Tab: Branches
+      const branchesData = [
+        ["Branch Name", "Branch Code", "Workbook/Sheet link", "Active (Yes/No)"],
+        ["Thodupuzha", "THDPZ", "", "Yes"],
+        ["Chennai", "CHN", "", "Yes"],
+        ["Ernakulam", "EKM", "", "Yes"],
+        ["Calicut", "CLT", "", "Yes"]
+      ];
+      const wsBranches = XLSX.utils.aoa_to_sheet(branchesData);
+      XLSX.utils.book_append_sheet(wb, wsBranches, "Branches");
+
+      // 3. Tab: Batch Info
+      const batchInfoData = [
+        ["GRANDIS TECHNOLOGY PVT. LTD. - R&D DEPARTMENT"],
+        ["QC EVALUATION BATCH INFORMATION"],
+        [],
+        ["Field", "Value", "Notes"],
+        ["Branch", "Thodupuzha", "Select branch name (Thodupuzha, Chennai, Ernakulam, Calicut)"],
+        ["Batch", "Batch 24", "Enter batch identifier"],
+        ["QC Date", new Date().toISOString().split('T')[0], "Format: YYYY-MM-DD"],
+        ["Faculty", "Mr. Anand Kumar", "Faculty in-charge"],
+        ["Module Incharge", "Mr. Vignesh R", "Module lead"],
+        ["HOF", "Dr. K. R. Sharma", "Head of Faculty"],
+        ["QC Assessors", "R&D Quality Team", "Names of assessors / inspectors"]
+      ];
+      const wsInfo = XLSX.utils.aoa_to_sheet(batchInfoData);
+      XLSX.utils.book_append_sheet(wb, wsInfo, "Batch Info");
+
+      // 2. Tabs per QC
+      Object.keys(appSettings.qcs).forEach(qcKey => {
+        const qDef = appSettings.qcs[qcKey];
+        const headers = [];
+        if (qDef.hasSn) headers.push("SN");
+        headers.push(qDef.idLabel || "GID");
+        headers.push("Student Name");
+
+        qDef.sections.forEach(s => {
+          s.parts.forEach(p => headers.push(p.name));
+          if (s.passMark !== null && s.passMark !== undefined) {
+            headers.push(`${s.name} Score`);
+            headers.push(`${s.name} Pass/Fail`);
+          }
+        });
+
+        if (qDef.overall.columnHeaders) {
+          qDef.overall.columnHeaders.forEach(h => headers.push(h));
+        } else {
+          headers.push("Total");
+          headers.push("Percentage");
+          headers.push("Result");
+          headers.push(qDef.overall.labelType || "Grade");
+        }
+        headers.push("Remarks");
+
+        const qcData = [
+          [qDef.title.toUpperCase()],
+          ["Rules: Every marking part is out of 8 (0 to 8 only). Overall pass needs Theory pass AND Practical pass."],
+          [],
+          headers,
+          // Sample rows
+          qDef.hasSn 
+            ? [1, "DEMO1001", "Sample Student", ...qDef.sections.flatMap(s => s.parts.map(() => 7)), "", "", "", "", "", "Good"]
+            : ["DEMO1001", "Sample Student", ...qDef.sections.flatMap(s => s.parts.map(() => 7)), "", "", "", "", "", "Good"]
+        ];
+
+        const wsQC = XLSX.utils.aoa_to_sheet(qcData);
+        XLSX.utils.book_append_sheet(wb, wsQC, qcKey.replace(/\s+/g, '_'));
+      });
+
+      // 3. Tab: How to use
+      const helpData = [
+        ["GRANDIS QC SYSTEM - HOW TO USE THIS WORKBOOK"],
+        [],
+        ["Step 1", "Fill in the 'Batch Info' sheet with your branch, batch, date, and assessors."],
+        ["Step 2", "Select the relevant QC tab (e.g. 1ST_QC, 2ND_QC, SOFTWARE_QC, CMT_QC, FINAL_QC)."],
+        ["Step 3", "Enter student GID, Name, and marks (0 to 8 for each part, half marks allowed)."],
+        ["Step 4", "Save the Excel file and click 'Import Excel' in the QC Sheet Web App or place in Drive folder."],
+        ["Step 5", "The web app and student portal will automatically parse the marks and compute verified grades!"]
+      ];
+      const wsHelp = XLSX.utils.aoa_to_sheet(helpData);
+      XLSX.utils.book_append_sheet(wb, wsHelp, "How to use");
+
+      XLSX.writeFile(wb, "QC_Batch_Template.xlsx");
+      showToast("Downloaded QC_Batch_Template.xlsx");
+    }
+
+    // =========================================================================
+    // STUDENTS MASTER TAB
+    // =========================================================================
+    function renderStudentsMasterTable() {
+      const tbody = document.getElementById('studentsMasterTbody');
+      tbody.innerHTML = '';
+
+      studentMaster.forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="td-row-num">${idx + 1}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="gid">${esc(s.gid)}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="name">${esc(s.name)}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="branch">${esc(s.branch || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="batch">${esc(s.batch || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="faculty">${esc(s.faculty || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="module">${esc(s.module || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="admNo">${esc(s.admNo || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="status">${esc(s.status || 'Active')}</td>
+          <td style="text-align:center;">
+            <button type="button" class="tool-btn btn-danger" style="padding:1px 6px; font-size:10px;" onclick="deleteStudentMasterRow(${idx})">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function addStudentMasterRow() {
+      studentMaster.push({
+        gid: '',
+        name: '',
+        branch: document.getElementById('infoBranch').value || 'Thodupuzha',
+        batch: document.getElementById('infoBatch').value || 'Batch 24',
+        faculty: '',
+        module: 'Module 1',
+        admNo: '',
+        status: 'Active'
+      });
+      renderStudentsMasterTable();
+      setTimeout(() => {
+        const lastRow = document.querySelector('#studentsMasterTbody tr:last-child td[data-field="gid"]');
+        if (lastRow) lastRow.focus();
+      }, 40);
+    }
+
+    window.deleteStudentMasterRow = function(idx) {
+      if (confirm(`Remove student ${studentMaster[idx].name || studentMaster[idx].gid || ''}?`)) {
+        studentMaster.splice(idx, 1);
+        renderStudentsMasterTable();
+      }
+    };
+
+    function saveStudentsMaster() {
+      const rows = document.querySelectorAll('#studentsMasterTbody tr');
+      const updated = [];
+
+      rows.forEach(r => {
+        const gid = (r.querySelector('td[data-field="gid"]').textContent || '').trim();
+        const name = (r.querySelector('td[data-field="name"]').textContent || '').trim();
+        if (gid || name) {
+          updated.push({
+            gid: gid,
+            name: name,
+            branch: (r.querySelector('td[data-field="branch"]').textContent || '').trim(),
+            batch: (r.querySelector('td[data-field="batch"]').textContent || '').trim(),
+            faculty: (r.querySelector('td[data-field="faculty"]').textContent || '').trim(),
+            module: (r.querySelector('td[data-field="module"]').textContent || '').trim(),
+            admNo: (r.querySelector('td[data-field="admNo"]').textContent || '').trim(),
+            status: (r.querySelector('td[data-field="status"]').textContent || 'Active').trim()
+          });
+        }
+      });
+
+      studentMaster = updated;
+      localStorage.setItem("grandis_qc_students", JSON.stringify(studentMaster));
+      showToast(`Saved ${studentMaster.length} students in Master Directory`);
+    }
+
+    // =========================================================================
+    // SETTINGS TAB
+    // =========================================================================
+    function saveSettingsJson() {
+      const text = document.getElementById('settingsJsonTextarea').value;
+      try {
+        const parsed = JSON.parse(text);
+        appSettings = parsed;
+        localStorage.setItem("grandis_qc_settings", JSON.stringify(appSettings));
+        refreshDatalists();
+        showToast("Settings JSON saved successfully!");
+      } catch (err) {
+        showToast("Invalid JSON syntax: " + err.message, true);
+      }
+    }
+
+    function resetSettingsToDefault() {
+      if (confirm("Reset all QC definitions and list settings to factory defaults?")) {
+        appSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+        document.getElementById('settingsJsonTextarea').value = JSON.stringify(appSettings, null, 2);
+        localStorage.removeItem("grandis_qc_settings");
+        refreshDatalists();
+        renderPassMarksConfigTable();
+        showToast("Settings reset to defaults.");
+      }
+    }
+
+    // =========================================================================
+    // BRANCHES MASTER TAB
+    // =========================================================================
+    function renderBranchesMasterTable() {
+      const tbody = document.getElementById('branchesMasterTbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      branchesList.forEach((b, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="td-row-num">${idx + 1}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="name">${esc(b.name)}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="code">${esc(b.code || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable" data-field="link">${esc(b.link || '')}</td>
+          <td contenteditable="true" spellcheck="false" class="cell-editable cell-center" data-field="active">${esc(b.active || 'Yes')}</td>
+          <td style="text-align:center;">
+            <button type="button" class="tool-btn btn-danger" style="padding:1px 6px; font-size:10px;" onclick="deleteBranchMasterRow(${idx})">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function addBranchMasterRow() {
+      branchesList.push({
+        name: 'New Branch',
+        code: 'NEW',
+        link: '',
+        active: 'Yes'
+      });
+      renderBranchesMasterTable();
+      setTimeout(() => {
+        const lastRow = document.querySelector('#branchesMasterTbody tr:last-child td[data-field="name"]');
+        if (lastRow) lastRow.focus();
+      }, 40);
+    }
+
+    window.deleteBranchMasterRow = function(idx) {
+      if (confirm(`Remove branch ${branchesList[idx].name}?`)) {
+        branchesList.splice(idx, 1);
+        renderBranchesMasterTable();
+      }
+    };
+
+    async function saveBranchesMaster() {
+      const rows = document.querySelectorAll('#branchesMasterTbody tr');
+      const updated = [];
+      rows.forEach(r => {
+        const name = (r.querySelector('td[data-field="name"]').textContent || '').trim();
+        if (name) {
+          updated.push({
+            name: name,
+            code: (r.querySelector('td[data-field="code"]').textContent || '').trim(),
+            link: (r.querySelector('td[data-field="link"]').textContent || '').trim(),
+            active: (r.querySelector('td[data-field="active"]').textContent || 'Yes').trim()
+          });
+        }
+      });
+
+      branchesList = updated;
+      localStorage.setItem("grandis_qc_branches", JSON.stringify(branchesList));
+      if (appSettings.lists) {
+        appSettings.lists.branches = branchesList.filter(b => (b.active || '').toLowerCase() === 'yes').map(b => b.name);
+        localStorage.setItem("grandis_qc_settings", JSON.stringify(appSettings));
+        refreshDatalists();
+      }
+
+      try {
+        await api('saveBranches', { branches: branchesList });
+      } catch (e) {}
+
+      showToast(`Saved ${branchesList.length} branches successfully!`);
+    }
+
+    // =========================================================================
+    // PASS MARKS CONFIGURATION TABLE (Settings Sheet Sync)
+    // =========================================================================
+    function renderPassMarksConfigTable() {
+      const tbody = document.getElementById('passMarksConfigTbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const qcs = ["1ST QC", "2ND QC", "CMT QC", "SOFTWARE QC", "FINAL QC"];
+      qcs.forEach(k => {
+        const qDef = appSettings.qcs[k];
+        if (!qDef) return;
+
+        const tSec = qDef.sections.find(s => s.name.toLowerCase().includes('theor'));
+        const pSec = qDef.sections.find(s => s.name.toLowerCase().includes('prac'));
+        const tPass = tSec ? tSec.passMark : 'NA';
+        const pPass = pSec ? pSec.passMark : 'NA';
+        const oPass = qDef.overall.passMark !== undefined ? qDef.overall.passMark : 'NA';
+
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-qc-key', k);
+        tr.innerHTML = `
+          <td style="font-weight:700;">${esc(k)}</td>
+          <td>${esc(qDef.title || '')}</td>
+          <td contenteditable="${tPass !== 'NA'}" class="${tPass !== 'NA' ? 'cell-editable cell-numeric' : 'cell-computed'}" data-field="theoryPass" style="font-weight:700;">${tPass}</td>
+          <td contenteditable="${pPass !== 'NA'}" class="${pPass !== 'NA' ? 'cell-editable cell-numeric' : 'cell-computed'}" data-field="practicalPass" style="font-weight:700;">${pPass}</td>
+          <td contenteditable="${oPass !== 'NA'}" class="${oPass !== 'NA' ? 'cell-editable cell-numeric' : 'cell-computed'}" data-field="overallPass" style="font-weight:700;">${oPass}</td>
+          <td style="text-align:center; font-weight:700;">${qDef.overall.max || ''}</td>
+          <td style="text-align:center;">${esc(qDef.overall.rule || 'SECTIONS_PASS')}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function savePassMarksConfigTable() {
+      const rows = document.querySelectorAll('#passMarksConfigTbody tr');
+      const tableRows = [];
+
+      rows.forEach(r => {
+        const qcKey = r.getAttribute('data-qc-key');
+        const qDef = appSettings.qcs[qcKey];
+        if (!qDef) return;
+
+        const tVal = (r.querySelector('td[data-field="theoryPass"]').textContent || '').trim();
+        const pVal = (r.querySelector('td[data-field="practicalPass"]').textContent || '').trim();
+        const oVal = (r.querySelector('td[data-field="overallPass"]').textContent || '').trim();
+
+        if (tVal !== 'NA' && tVal !== '' && !isNaN(tVal)) {
+          const tSec = qDef.sections.find(s => s.name.toLowerCase().includes('theor'));
+          if (tSec) tSec.passMark = Number(tVal);
+        }
+        if (pVal !== 'NA' && pVal !== '' && !isNaN(pVal)) {
+          const pSec = qDef.sections.find(s => s.name.toLowerCase().includes('prac'));
+          if (pSec) pSec.passMark = Number(pVal);
+        }
+        if (oVal !== 'NA' && oVal !== '' && !isNaN(oVal)) {
+          qDef.overall.passMark = Number(oVal);
+        }
+
+        tableRows.push({
+          qcType: qcKey,
+          title: qDef.title,
+          theoryPass: tVal !== 'NA' ? Number(tVal) : 'NA',
+          practicalPass: pVal !== 'NA' ? Number(pVal) : 'NA',
+          overallPass: oVal !== 'NA' ? Number(oVal) : 'NA',
+          maxMarks: qDef.overall.max,
+          passingRule: qDef.overall.rule
+        });
+      });
+
+      localStorage.setItem("grandis_qc_settings", JSON.stringify(appSettings));
+      document.getElementById('settingsJsonTextarea').value = JSON.stringify(appSettings, null, 2);
+
+      try {
+        await api('saveSettingsTable', { tableRows: tableRows });
+      } catch (e) {}
+
+      showToast("Pass marks updated & saved to Settings sheet! All sheets recalculated.");
+    }
+
+    // Launch application on load
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
