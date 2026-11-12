@@ -156,28 +156,30 @@ export default function Login({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0c0e] flex items-center justify-center p-4 selection:bg-amber-500/20 selection:text-amber-200">
+    <div className="min-h-screen bg-[#EEF2F6] bg-[radial-gradient(ellipse_at_top,_#F8FAFC,_#E2E8F0)] flex items-center justify-center p-4 selection:bg-blue-500/15 selection:text-blue-800">
       
-      {/* Background Glow */}
+      {/* Soft Ambient Royal Blue Glow */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl opacity-60"></div>
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-amber-600/10 rounded-full blur-3xl opacity-60"></div>
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl opacity-70"></div>
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl opacity-70"></div>
       </div>
 
       {/* Main Login Card */}
-      <div className="relative max-w-md w-full bg-[#141518] border border-amber-500/25 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_rgba(245,158,11,0.08)] p-8 z-10">
+      <div className="relative max-w-md w-full bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-3xl shadow-[0_20px_50px_rgba(15,23,42,0.08),0_4px_16px_rgba(37,99,235,0.05)] p-8 z-10">
         
         {/* Header / Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 text-amber-400 mb-3 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-            <ShieldCheck size={28} />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 text-white mb-3.5 shadow-[0_6px_18px_rgba(37,99,235,0.3)] ring-4 ring-blue-50">
+            <ShieldCheck size={26} />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">TeamPulse</h1>
-          <p className="text-xs text-amber-200/60 mt-1 font-medium">Enterprise Work & Task Management</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Team<span className="text-blue-600">Pulse</span>
+          </h1>
+          <p className="text-xs text-slate-500 mt-1 font-medium">Enterprise Work & Task Management</p>
         </div>
 
         {error && (
-          <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-start gap-2">
+          <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
             <span className="font-semibold">Error:</span>
             <span>{error}</span>
           </div>
@@ -186,11 +188,11 @@ export default function Login({ onLoginSuccess }) {
         <form onSubmit={handleLogin} className="space-y-4">
           {/* Username Input */}
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
               Username
             </label>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-neutral-500">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
                 <User size={16} />
               </span>
               <input
@@ -198,7 +200,7 @@ export default function Login({ onLoginSuccess }) {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-3 py-2.5 bg-[#0b0c0e] border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition"
                 placeholder="Enter your username"
               />
             </div>
@@ -207,7 +209,7 @@ export default function Login({ onLoginSuccess }) {
           {/* Password Input with Eye Toggle */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <label className="block text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                 Password
               </label>
               <button
@@ -217,13 +219,13 @@ export default function Login({ onLoginSuccess }) {
                   setOtpStep(1);
                   setModalMsg({ text: '', type: '' });
                 }}
-                className="text-xs text-amber-400 hover:text-amber-300 transition font-medium"
+                className="text-xs text-blue-600 hover:text-blue-700 transition font-semibold cursor-pointer"
               >
                 Forgot password?
               </button>
             </div>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-neutral-500">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
                 <Lock size={16} />
               </span>
               <input
@@ -231,13 +233,13 @@ export default function Login({ onLoginSuccess }) {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-2.5 bg-[#0b0c0e] border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition"
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50/70 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition"
                 placeholder="••••••••"
               />
               <button
                 type="button"
                 onClick={() => setShowLoginPassword(!showLoginPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-amber-400 transition cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-blue-600 transition cursor-pointer"
                 tabIndex={-1}
               >
                 {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -249,29 +251,31 @@ export default function Login({ onLoginSuccess }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold py-2.5 rounded-xl text-sm transition shadow-[0_0_20px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+            className="w-full mt-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-[0_6px_18px_rgba(37,99,235,0.28)] hover:shadow-[0_8px_24px_rgba(37,99,235,0.38)] flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
           >
             {loading ? 'Authenticating...' : 'Sign In'}
             <ArrowRight size={16} />
           </button>
         </form>
 
-        <div className="mt-8 pt-4 border-t border-neutral-800/80 text-center text-xs text-neutral-500">
+        <div className="mt-8 pt-4 border-t border-slate-100 text-center text-xs text-slate-400 font-medium">
           Internal access strictly governed by Organization Leads
         </div>
       </div>
 
       {/* Forgot Password OTP Recovery Modal */}
       {showForgotModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#141518] border border-amber-500/30 rounded-2xl max-w-sm w-full p-6 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_25px_rgba(245,158,11,0.1)] relative">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200/90 rounded-3xl max-w-sm w-full p-6 shadow-[0_24px_50px_rgba(15,23,42,0.16)] relative">
             
-            <div className="flex items-center gap-2 text-white font-bold mb-1">
-              <KeyRound className="text-amber-400" size={18} />
-              <h3 className="text-base text-white">Password Recovery</h3>
+            <div className="flex items-center gap-2.5 text-slate-900 font-bold mb-1.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center">
+                <KeyRound size={16} />
+              </div>
+              <h3 className="text-base text-slate-900">Password Recovery</h3>
             </div>
             
-            <p className="text-xs text-neutral-400 mb-4 leading-relaxed">
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
               {otpStep === 1 
                 ? 'Enter your registered corporate email to generate a 6-digit recovery OTP.'
                 : 'Enter the 6-digit code sent to your inbox along with your new password.'}
@@ -280,8 +284,8 @@ export default function Login({ onLoginSuccess }) {
             {modalMsg.text && (
               <div className={`mb-4 p-3 rounded-xl text-xs border leading-relaxed ${
                 modalMsg.type === 'error' 
-                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' 
-                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  ? 'bg-rose-50 border-rose-200 text-rose-700' 
+                  : 'bg-blue-50 border-blue-200 text-blue-700'
               }`}>
                 {modalMsg.text}
               </div>
@@ -290,11 +294,11 @@ export default function Login({ onLoginSuccess }) {
             {otpStep === 1 ? (
               <form onSubmit={handleRequestOTP} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
                     Corporate Email
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-neutral-500">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
                       <Mail size={15} />
                     </span>
                     <input
@@ -303,7 +307,7 @@ export default function Login({ onLoginSuccess }) {
                       value={resetEmail}
                       onChange={(e) => setResetEmail(e.target.value)}
                       placeholder="user@company.com"
-                      className="w-full pl-10 pr-3 py-2 bg-[#0b0c0e] border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40 transition"
+                      className="w-full pl-10 pr-3 py-2 bg-slate-50/70 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition"
                     />
                   </div>
                 </div>
@@ -312,14 +316,14 @@ export default function Login({ onLoginSuccess }) {
                   <button
                     type="button"
                     onClick={() => setShowForgotModal(false)}
-                    className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white transition font-medium cursor-pointer"
+                    className="px-3.5 py-2 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={otpLoading || cooldown > 0}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs px-4 py-2 rounded-xl font-semibold transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-md"
+                    className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-xs px-4 py-2 rounded-xl font-semibold transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-[0_4px_12px_rgba(37,99,235,0.25)]"
                   >
                     {otpLoading ? (
                       'Sending...'
@@ -338,11 +342,11 @@ export default function Login({ onLoginSuccess }) {
               <form onSubmit={handleVerifyOTP} className="space-y-3">
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                       6-Digit Code
                     </label>
                     {cooldown > 0 ? (
-                      <span className="text-[11px] text-amber-400/80 font-mono flex items-center gap-1">
+                      <span className="text-[11px] text-blue-600 font-mono font-semibold flex items-center gap-1">
                         <Clock size={11} /> {formatCooldown(cooldown)}
                       </span>
                     ) : (
@@ -350,7 +354,7 @@ export default function Login({ onLoginSuccess }) {
                         type="button"
                         onClick={handleRequestOTP}
                         disabled={otpLoading}
-                        className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 underline cursor-pointer"
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 underline cursor-pointer"
                       >
                         <RefreshCw size={11} /> Resend OTP
                       </button>
@@ -363,16 +367,16 @@ export default function Login({ onLoginSuccess }) {
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
-                    className="w-full py-2 bg-[#0b0c0e] border border-amber-500/40 rounded-xl text-center font-mono tracking-widest text-lg font-bold text-amber-300 focus:outline-none focus:border-amber-400 transition"
+                    className="w-full py-2 bg-blue-50/40 border border-blue-200 rounded-xl text-center font-mono tracking-widest text-lg font-bold text-blue-700 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-neutral-300 mb-1 uppercase tracking-wider">
+                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
                     New Password
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-neutral-500">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
                       <Lock size={15} />
                     </span>
                     <input
@@ -382,12 +386,12 @@ export default function Login({ onLoginSuccess }) {
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Min. 6 characters"
-                      className="w-full pl-10 pr-10 py-2 bg-[#0b0c0e] border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500/60 transition"
+                      className="w-full pl-10 pr-10 py-2 bg-slate-50/70 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 transition"
                     />
                     <button
                       type="button"
                       onClick={() => setShowResetPassword(!showResetPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-amber-400 transition cursor-pointer"
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-blue-600 transition cursor-pointer"
                       tabIndex={-1}
                     >
                       {showResetPassword ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -402,14 +406,14 @@ export default function Login({ onLoginSuccess }) {
                       setOtpStep(1);
                       setModalMsg({ text: '', type: '' });
                     }}
-                    className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white transition font-medium cursor-pointer"
+                    className="px-3.5 py-2 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition font-semibold cursor-pointer"
                   >
                     Back
                   </button>
                   <button
                     type="submit"
                     disabled={otpLoading}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs px-4 py-2 rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer shadow-md"
+                    className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-xs px-4 py-2 rounded-xl font-semibold transition disabled:opacity-50 cursor-pointer shadow-[0_4px_12px_rgba(37,99,235,0.25)]"
                   >
                     {otpLoading ? 'Verifying...' : 'Confirm Reset'}
                   </button>
