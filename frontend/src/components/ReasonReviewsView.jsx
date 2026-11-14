@@ -48,6 +48,7 @@ export default function ReasonReviewsView({ currentUser }) {
   }, [statusFilter, typeFilter]);
 
   const handleOpenActionModal = (item, type) => {
+    if (item.submitted_by_id === currentUser?.id) return;
     setActiveItem(item);
     setActionType(type);
     setNewDueDate(item.expected_due_date || todayStr);
@@ -198,6 +199,7 @@ export default function ReasonReviewsView({ currentUser }) {
                   };
                   const createdDT = formatDateTime(item.created_at);
                   const isPending = item.status === 'PENDING_REVIEW';
+                  const isOwnSubmission = item.submitted_by_id === currentUser?.id;
 
                   return (
                     <tr key={item.id} className="hover:bg-blue-50/40 transition duration-150">
@@ -269,7 +271,7 @@ export default function ReasonReviewsView({ currentUser }) {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        {isPending ? (
+                        {isPending && !isOwnSubmission ? (
                           <div className="flex items-center justify-end gap-2">
                             {item.form_type === 'OVERDUE_DELAY' ? (
                               <>
@@ -306,6 +308,8 @@ export default function ReasonReviewsView({ currentUser }) {
                               </button>
                             )}
                           </div>
+                        ) : isPending ? (
+                          <span className="text-[11px] text-amber-600 italic font-medium">Awaiting Review</span>
                         ) : (
                           <span className="text-[11px] text-slate-400 font-medium">Completed</span>
                         )}
